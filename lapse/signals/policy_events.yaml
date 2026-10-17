@@ -1,0 +1,10 @@
+events:
+  - id: x_sms_2fa_2023
+    at: 2023-03-20
+    service_id: x
+    description: Twitter/X disables SMS two-factor authentication for non-subscribers.
+    source_url: https://blog.x.com/en_us/topics/product/2023/an-update-on-two-factor-authentication-using-sms-on-twitter
+    coverage_url: https://www.bleepingcomputer.com/news/security/twitter-gets-rid-of-sms-2fa-for-non-blue-members-what-you-need-to-do/
+    diff:
+      disable_needs_roles: [sms_2fa]
+      exempt_account_property: x_blue_subscriber
