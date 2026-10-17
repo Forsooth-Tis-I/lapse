@@ -1,6 +1,6 @@
 # Graph data model
 
-This reference follows [the shared contracts](../lapse/contracts.py) and the final Decisions in [the build plan](BUILD_PLAN.md). Foundation writes policy, roots, accounts, methods, and fixture evidence. Scenario, plan, execution, signal, and conversation records below describe the planned consumers of that foundation.
+This reference follows [the shared contracts](../lapse/contracts.py) and the final Decisions in [the build plan](BUILD_PLAN.md). Foundation writes policy, roots, accounts, methods, and fixture evidence. Graph core persists scenarios, derivations, plans, and changes. Execution, signal, and conversation records below describe other consumers of that foundation.
 
 ## Graphs and storage
 
@@ -27,7 +27,7 @@ A question mark marks an optional property. Fields on later work-package records
 | `Method` | `id`, `account_id`, `kind`, `label`, `needs_password`, `source`, `doc_url?`; observed methods may add `confidence`. No shared instance model yet. |
 | `Evidence` | `id`, `msg_id`, `inbox`, `date`, `sender`, `subject`, `snippet`, `event`. |
 | `Signal` | `id`, `kind`, `root_id?`, `at`, `title`, `detail`, `deadline?`, `status` = `open`, `acted`, or `dismissed`. |
-| `Scenario` | Planned `id`, `kind`, `actor`, `root_ids`, `created_at`, `reached_count`. `ScenarioResult` additionally carries computed summaries, not nested graph properties. |
+| `Scenario` | `id`, `kind`, `actor`, `root_ids`, `created_at`, `reached_count`, `ms`, `result_json`. The JSON string preserves the shared `ScenarioResult` summary. |
 | `Plan` | `id`, `kind`, `old_root`, `new_root?`, `deadline?`, `feasible`, `exposure_before`, `exposure_after`, `created_at`. Steps are relationships. The plan's earlier `status` field is not in the shared model. |
 | `Change` | `id`, `plan_id`, `order`, `account_id`, `account_label`, `role`, `from_root`, `to_root?`, `tier`, `requires_old_root`, `due?`, `exposure_removed`, `status`, `settings_url?`, `note?`. |
 | `Action` | Planned `id`, `at`, `kind`, `result`, `detail`, `screenshot_url?`. No shared persistence model yet. |
@@ -56,7 +56,7 @@ A question mark marks an optional property. Fields on later work-package records
 | `(Signal)-[:ABOUT]->(Root)` | The signal's affected root. |
 | `(Scenario)-[:SEED]->(Root)` | Roots initially controlled by the actor. |
 | `(Scenario)-[:REACHED]->(Account or Root)` | `round`, `via`; records the method that established control. |
-| `(target)-[:DERIVED]->(need)` | `scenario`, `method`, `round`; retains each prerequisite for an explanation. |
+| `(target)-[:DERIVED]->(need)` | `scenario`, `basis`, `method`, `method_label`, `round`; retains each prerequisite for an explanation. `basis` distinguishes actual `reached` derivations from lockout `baseline` derivations. |
 | `(Plan)-[:HAS_STEP]->(Change)` | `order`; the ordered repair steps. |
 | `(Change)-[:BEFORE]->(Change)` | Execution ordering. |
 | `(Change)-[:FOR]->(Account)` | The account being changed. |
@@ -96,7 +96,19 @@ A takeover scenario seeds the roots acquired by a stranger and gives that actor 
 
 `ENABLES` supports a sound lower bound for password-free reachability. It cannot represent an AND gate and does not replace closure. GitHub's fixture reset requires both `email_primary` and `device_phone`; email alone creates no ENABLES shortcut to GitHub.
 
-Scenario claims are always qualified as "under the methods we model". Accounts with `modelled=false`, such as fixture Splitwise, have no compiled methods and are "unknown, not safe". In lockout results, `affected_accounts` contains accounts the user cannot reach, not the reached set.
+Scenario claims are always qualified as "under the methods we model". Accounts with `modelled=false`, such as fixture Splitwise, have no compiled methods and are "unknown, not safe". In lockout results, `affected_accounts` contains accounts reachable in the no-loss baseline but unreachable after the loss. Accounts already unreachable are excluded.
+
+## How the closure works
+
+`closure.py` repeatedly runs `closure_round.cypher` with the IDs already controlled, password knowledge, and disabled method IDs. FalkorDB checks every method's complete NEEDS set. A method succeeds only when all its needs were controlled before this round. Any eligible method may grant a target; zero-need methods require password knowledge.
+
+Each round adds new targets until no target is gained. Methods sort by ID, so competing methods in the same earliest round produce one deterministic derivation. The result retains the target's round, selected method, and every need. An unseeded cycle never starts. The Python loop does not substitute ordinary graph reachability for the database's AND check.
+
+Takeover seeds the acquired roots without passwords. Lockout compares two closures with password knowledge: held phones and devices before the loss, then those possession roots minus the lost roots. Mailbox methods granting a lost Email root are disabled in the second closure. The difference between account sets is the loss attributable to this scenario.
+
+SEED and REACHED describe the actor's actual closure. DERIVED edges with `basis='reached'` preserve its earliest derivations. Lockout also stores `basis='baseline'` derivations so an unreachable account still has an explanation. `explain` chooses the baseline for lockout and includes every AND branch, ordered by round from prerequisites to account. Graph views use actual reached derivations, so a surviving account shows the route it retains. Evidence comes from SUPPORTS and MENTIONS on the path's nodes. Pruning removes both derivation sets with scenarios older than the latest 20.
+
+Planner exposure uses this same evaluator in `GRAPH.COPY` sandboxes. For lockout plans, the original baseline account set remains fixed across changes. Removing an account's only sign-in method cannot make a plan appear to repair that account.
 
 ## Indexes
 
