@@ -296,3 +296,164 @@ def test_contact_change_keeps_newer_sms_observation_in_either_delivery_order(gra
         ["sms_2fa", "phone_new", True],
         ["sms_2fa", "phone_old", True],
     ]
+
+
+def email_change(**kwargs):
+    return event(
+        **(
+            {
+                "msg_id": "<email-changed>",
+                "date": datetime(2026, 10, 18, tzinfo=UTC),
+                "inbox": "email_primary",
+                "account_identifier": "demo@example.com",
+                "service_id": "canva",
+                "sender": "notice@canva.com",
+                "sender_domain": "canva.com",
+                "event": "contact_changed",
+                "phone_last4": [],
+                "subject": "Your email address has been changed",
+                "snippet": "Your email address changed from demo@example.edu to demo@example.com.",
+                "contact_change": ContactChange(
+                    kind="email", old_email="demo@example.edu", new_email="demo@example.com"
+                ),
+            }
+            | kwargs
+        )
+    )
+
+
+def test_email_confirmation_preserves_fixture_identity_and_replay(graph):
+    g, _, _ = graph
+    g.query(
+        "MATCH (old:Email {id: 'email_college'}) "
+        "CREATE (a:Account {id: 'canva', service_id: 'canva', identifier: 'demo@example.edu'}), "
+        "(a)-[:USES {role: 'login_email'}]->(old), "
+        "(:Change {id: 'change', account_id: 'canva'})"
+    )
+    writer.write_events("test", [email_change()])
+    assert g.ro_query("MATCH (a:Account) RETURN a.id, a.identifier").result_set == [
+        ["canva", "demo@example.com"]
+    ]
+    assert uses(g, "canva") == [["login_email", "email_primary", True]]
+    assert g.ro_query(
+        "MATCH (e:Evidence)-[:SUPPORTS]->(a:Account), (c:Change {account_id: a.id}) RETURN e.msg_id, c.id"
+    ).result_set == [["<email-changed>", "change"]]
+    before = snapshot(g)
+    writer.write_events("test", [email_change()])
+    assert snapshot(g) == before
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_email_identity_and_uses_survive_out_of_order_signup(graph, reverse):
+    g, _, _ = graph
+    signup = email_change(
+        msg_id="<signup>",
+        date=datetime(2026, 10, 17, tzinfo=UTC),
+        event="signup",
+        inbox="email_college",
+        account_identifier="demo@example.edu",
+        contact_change=None,
+    )
+    ordered = [signup, email_change()]
+    for incoming in reversed(ordered) if reverse else ordered:
+        writer.write_events("test", [incoming])
+    assert g.ro_query("MATCH (a:Account) RETURN a.identifier").result_set == [["demo@example.com"]]
+    assert uses(g, "canva") == [["login_email", "email_primary", True]]
+    assert g.ro_query("MATCH (:Evidence)-[:SUPPORTS]->(a) RETURN count(DISTINCT a)").result_set == [[1]]
+
+
+def test_ambiguous_email_change_does_not_merge_two_accounts(graph):
+    g, _, _ = graph
+    g.query(
+        "CREATE (:Account {id: 'old', service_id: 'canva', identifier: 'demo@example.edu'}), "
+        "(:Account {id: 'new', service_id: 'canva', identifier: 'demo@example.com'})"
+    )
+    before = snapshot(g)
+    with pytest.raises(ValueError, match="Ambiguous account identity"):
+        writer.write_events("test", [email_change()])
+    assert snapshot(g) == before
+
+
+def test_confirmation_without_old_email_resolves_pending_change(graph):
+    g, _, _ = graph
+    g.query(
+        "MATCH (old:Email {id: 'email_college'}) "
+        "CREATE (a:Account {id: 'canva', service_id: 'canva', identifier: 'demo@example.edu'}), "
+        "(a)-[:USES {role: 'login_email'}]->(old), "
+        "(:Change {id: 'change', account_id: 'canva', role: 'login_email', "
+        "to_root: 'email_primary', status: 'awaiting_user'})"
+    )
+    writer.write_events(
+        "test", [email_change(contact_change=ContactChange(kind="email", new_email="demo@example.com"))]
+    )
+    assert g.ro_query("MATCH (a:Account) RETURN a.id, a.identifier").result_set == [
+        ["canva", "demo@example.com"]
+    ]
+    assert uses(g, "canva") == [["login_email", "email_primary", True]]
+
+
+def test_unattributed_email_change_does_not_guess_the_existing_account(graph):
+    g, _, _ = graph
+    g.query("CREATE (:Account {id: 'canva', service_id: 'canva', identifier: 'other@example.edu'})")
+    before = snapshot(g)
+    with pytest.raises(ValueError, match="Unresolved account identity"):
+        writer.write_events(
+            "test", [email_change(contact_change=ContactChange(kind="email", new_email="demo@example.com"))]
+        )
+    assert snapshot(g) == before
+
+
+@pytest.mark.parametrize("current_email", ["demo@example.edu", "demo@example.com"])
+def test_explicit_old_email_cannot_be_overridden_by_pending_target(graph, current_email):
+    g, _, _ = graph
+    g.query(
+        "CREATE (:Account {id: 'canva', service_id: 'canva', identifier: $identifier}), "
+        "(:Change {id: 'change', account_id: 'canva', role: 'login_email', "
+        "to_root: 'email_primary', status: 'awaiting_user'})",
+        {"identifier": current_email},
+    )
+    before = snapshot(g)
+    with pytest.raises(ValueError, match="Unresolved account identity"):
+        writer.write_events(
+            "test",
+            [
+                email_change(
+                    contact_change=ContactChange(
+                        kind="email", old_email="someone-else@example.edu", new_email="demo@example.com"
+                    )
+                )
+            ],
+        )
+    assert snapshot(g) == before
+
+
+def test_recovery_email_change_preserves_login_identifier(graph):
+    g, _, _ = graph
+    writer.write_events(
+        "test",
+        [
+            email_change(
+                event="signup",
+                contact_change=None,
+                inbox="email_college",
+                account_identifier="demo@example.edu",
+            )
+        ],
+    )
+    writer.write_events(
+        "test",
+        [
+            email_change(
+                msg_id="<recovery>",
+                inbox="email_college",
+                account_identifier="demo@example.edu",
+                subject="Recovery email address has been changed",
+                snippet="Recovery email changed to demo@example.com.",
+            )
+        ],
+    )
+    assert g.ro_query("MATCH (a:Account) RETURN a.identifier").result_set == [["demo@example.edu"]]
+    assert uses(g, "canva") == [
+        ["login_email", "email_college", True],
+        ["recovery_email", "email_primary", True],
+    ]

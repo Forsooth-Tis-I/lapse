@@ -28,6 +28,7 @@ def iter_events(
     use_llm: bool = True,
     client: Any = None,
     stats: PrefilterStats | None = None,
+    extraction_stats: dict | None = None,
     cache_path: Path = DATA_DIR / "extract_cache.json",
     state_path: Path = DATA_DIR / "ingest_state.json",
 ) -> Iterator[ExtractedEvent]:
@@ -38,6 +39,10 @@ def iter_events(
     services = load_services()
     stats = stats if stats is not None else PrefilterStats()
     extractor = BatchExtractor(client=client, use_llm=use_llm, cache_path=cache_path, services=services)
+
+    if extraction_stats is not None:
+        extraction_stats.update(extractor.diagnostics)
+        extractor.diagnostics = extraction_stats
 
     def kept(messages):
         for email in messages:

@@ -72,3 +72,26 @@ The web validates and renders the optional planner display fields without changi
 - Chat replies add `diagnostics`: `llm_tool_calls: string[]`, `llm_requests: number`, `fallback_used: boolean`,
   `guard_regenerated: boolean`, and optional `fallback_reason: string`. The existing `tool_calls` includes
   fallback calls. Diagnostics contain no provider response bodies or credentials.
+
+## Two-level lockout responses
+
+`ScenarioResult` adds optional `lost_now_accounts: Reached[]` and `recovery_lost_accounts: Reached[]`,
+defaulting to `[]` for old records. `lost_now_accounts` means unreachable even with the password;
+`recovery_lost_accounts` means no password-free recovery route after losing the roots. Each tier excludes
+accounts already unreachable before the loss. Recovery checks use inboxes the user can still access;
+indirectly lost inboxes are excluded. `affected_accounts` is the union and can overlap both lists.
+`direct_accounts` contains affected accounts attached directly to a lost root. Takeover leaves both lists empty.
+
+Present the tiers as "Lost outright: N (…); no way back if you forget the password: M (…)" and retain the
+qualification "under the methods we model". Tier counts can overlap; use `affected_accounts.length` for the
+distinct total. Email/device plan exposure uses both tiers; phone plans also include takeover.
+
+`Explanation.outcome` accepts `lost_now` and `recovery_lost` for lockout paths. When both tiers apply, the
+explanation uses `lost_now`. `path` remains the takeover outcome; `not_affected` and `not_in_graph` are unchanged.
+This document describes the backend contract; adopting these fields in the web client is a separate change.
+
+Chat diagnostics also include `llm_attempts` and `model_fallback_used` for ordered provider-model failover.
+The existing `fallback_used` flag describes deterministic agent fallback.
+
+Screenshot URLs use `/api/screens/{uid}/{name}` and require that uid to match the selected tenant.
+Both this route and the legacy basename route serve only files in that tenant’s screenshot directory.

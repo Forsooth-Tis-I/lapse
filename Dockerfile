@@ -19,7 +19,7 @@ FROM runtime AS bot
 CMD ["lapse-bot"]
 
 FROM runtime AS mcp
-CMD ["lapse-mcp"]
+CMD ["lapse-mcp", "--transport", "streamable-http"]
 
 FROM worker AS worker-browser
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright

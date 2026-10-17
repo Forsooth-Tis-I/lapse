@@ -18,7 +18,7 @@ from lapse.contracts import (
 )
 from lapse.graph import db
 from lapse.graph.closure import closure
-from lapse.graph.scenarios import evaluate_scenario
+from lapse.graph.scenarios import evaluate_scenario, recovery_closure
 from lapse.policy import loader
 from lapse.policy.compile import compile_user_graph
 
@@ -38,7 +38,9 @@ def _apply(g: Graph, change: Change, policies: list[ServicePolicy], *, trace=Non
     compile_user_graph(g, policies, account_ids=[change.account_id], trace=trace)
 
 
-def _exposure(g: Graph, root: Root, baseline: set[str] | None, *, trace=None) -> tuple[set[str], set[str]]:
+def _exposure(
+    g: Graph, root: Root, baseline: tuple[set[str], set[str]] | None, *, trace=None
+) -> tuple[set[str], set[str]]:
     taken, lost = set(), set()
     if root.kind in {RootKind.phone, RootKind.domain}:
         evaluation = evaluate_scenario(
@@ -49,7 +51,10 @@ def _exposure(g: Graph, root: Root, baseline: set[str] | None, *, trace=None) ->
         evaluation = evaluate_scenario(
             g, ScenarioRequest(kind=ScenarioKind.lockout, root_ids=[root.id]), trace=trace
         )
-        lost = baseline - evaluation.closure.reached.keys()
+        access_before, recovery_before = baseline
+        lost = (access_before - evaluation.closure.reached.keys()) | (
+            recovery_before - evaluation.recovery.reached.keys()
+        )
     return taken, lost
 
 
@@ -124,9 +129,14 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
             g, ScenarioRequest(kind=ScenarioKind.lockout, root_ids=[old_root]), trace=trace
         )
         held_before = original.baseline
+        recovery_before = original.recovery_baseline
         if root.kind == RootKind.phone and root.status not in HELD_STATUSES:
             held_before = closure(g, [*original.seeds, old_root], pw=True, trace=trace)
-        baseline = {node.node_id for node in held_before.reached.values() if node.node_type == "Account"}
+            recovery_before = recovery_closure(g, held_before, trace=trace)
+        baseline = tuple(
+            {node.node_id for node in access.reached.values() if node.node_type == "Account"}
+            for access in (held_before, recovery_before)
+        )
     if root.kind in {RootKind.phone, RootKind.domain}:
         takeover = evaluate_scenario(
             g, ScenarioRequest(kind=ScenarioKind.takeover, root_ids=[old_root]), trace=trace
@@ -179,7 +189,9 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
         notes.append("Remaining takeover: " + ", ".join(sorted(taken)) + ".")
     if lost:
         notes.append(
-            "Remaining lockout: " + ", ".join(sorted(lost)) + "; these changes do not restore access."
+            "Remaining lockout: "
+            + ", ".join(sorted(lost))
+            + "; these changes do not restore sign-in or recovery."
         )
     if unknown_accounts:
         notes.append("Unknown, not safe: " + ", ".join(sorted(unknown_accounts)) + ".")

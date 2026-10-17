@@ -489,3 +489,19 @@ async def test_demo_wording_routes_when_model_is_unavailable(offline, prompt, ex
     assert reply["diagnostics"]["fallback_used"] is True
     assert reply["diagnostics"]["llm_tool_calls"] == []
     assert reply["diagnostics"]["guard_regenerated"] is False
+
+
+def test_template_keeps_takeover_when_model_also_checks_lockout(world):
+    takeover = world.scenario
+    lockout = {**takeover, "kind": "lockout", "lost_now_accounts": [], "recovery_lost_accounts": []}
+    answer = guard.templated([takeover, lockout])
+    assert "takeover: directly: 1" in answer
+    assert "lost outright: 0" in answer
+    assert "no way back if you forget the password: 0" in answer
+
+
+def test_focus_drops_replacement_root_scenarios_before_answer_and_memory(world):
+    selected = {"candidates": [{"id": "email-college", "kind": "root", "replacement_ids": ["email-primary"]}]}
+    college = {**world.scenario, "kind": "lockout", "root_ids": ["email-college"]}
+    replacement = {**world.scenario, "kind": "lockout", "root_ids": ["email-primary"]}
+    assert guard.focused_results([selected, college, replacement]) == [selected, college]

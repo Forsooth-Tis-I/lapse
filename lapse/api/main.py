@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import json
 import os
 from contextlib import nullcontext
 from datetime import datetime
@@ -33,7 +34,6 @@ from lapse.api.models import (
     OtpInput,
     PlanInput,
     ScenarioInput,
-    ScreenPointer,
 )
 from lapse.config import ROOT_DIR, settings
 from lapse.contracts import Change, ChangeStatus, Explanation, Plan, Root, ScenarioResult, ToolCallRecord
@@ -243,32 +243,56 @@ def screen(request: Request, uid: Uid):
     if isinstance(path, bytes):
         path = path.decode()
     caption = "Latest executor screenshot"
-    if path.startswith("{"):
-        pointer = ScreenPointer.model_validate_json(path)
-        if not pointer.url.startswith("/api/screens/"):
-            raise HTTPException(404, "That screenshot is not available.")
-        name = pointer.url.removeprefix("/api/screens/")
-        caption = pointer.caption
-    else:
+    try:
+        pointer = json.loads(path)
+    except json.JSONDecodeError:
         name = Path(path).name
+    else:
+        if not isinstance(pointer, dict) or not isinstance(pointer.get("url"), str):
+            raise HTTPException(404, "That screenshot is not available.")
+        prefix = f"/api/screens/{uid}/"
+        if not pointer["url"].startswith(prefix):
+            raise HTTPException(404, "That screenshot is not available.")
+        name = pointer["url"][len(prefix) :]
+        caption = pointer.get("caption", caption)
+    screenshot_path(uid, name)
     return {
-        "url": str(request.url_for("screenshot", name=name)),
+        "url": str(request.url_for("screenshot", screen_uid=uid, name=name)),
         "caption": caption,
         "mock": False,
     }
 
 
-@app.get("/api/screens/{name:path}")
-def screenshot(name: str):
-    directory = (DATA_DIR / "screens").resolve()
+def screenshot_path(uid: str, name: str) -> Path:
+    from lapse.exec.base import safe_component
+
+    try:
+        safe_component(uid)
+        safe_component(name)
+    except ValueError as exc:
+        raise HTTPException(404, "That screenshot is not available.") from exc
+    directory = (DATA_DIR / "screens").resolve() / uid
     path = (directory / name).resolve()
     if (
-        not path.is_relative_to(directory)
+        directory.is_symlink()
+        or path.parent != directory
         or not path.is_file()
         or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     ):
         raise HTTPException(404, "That screenshot is not available.")
-    return FileResponse(path)
+    return path
+
+
+@app.get("/api/screens/{screen_uid}/{name}")
+def screenshot(screen_uid: str, name: str, uid: Uid):
+    if screen_uid != uid:
+        raise HTTPException(404, "That screenshot is not available.")
+    return FileResponse(screenshot_path(uid, name))
+
+
+@app.get("/api/screens/{name}")
+def legacy_screenshot(name: str, uid: Uid):
+    return FileResponse(screenshot_path(uid, name))
 
 
 @app.get("/api/stats", response_model=GraphStats)

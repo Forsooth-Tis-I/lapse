@@ -71,6 +71,69 @@ def _publish(uid: str, counts: dict, *, status: str) -> None:
     )
 
 
+def _account_identity(g, event, service_id, identifier, evidence_id, order, *, trace=None):
+    change = event.contact_change if event.event == EventKind.contact_changed else None
+    login_change = (
+        change
+        and change.kind == "email"
+        and change.new_email
+        and not re.search(r"recovery\s+e-?mail", event.subject + " " + event.snippet, re.IGNORECASE)
+    )
+    old_email = change.old_email.strip().lower() if login_change and change.old_email else None
+    keys = {identifier}
+    if login_change:
+        keys.add(change.new_email.strip().lower())
+        if change.old_email:
+            keys.add(change.old_email.strip().lower())
+    rows = db.run(
+        g,
+        "ingest_account_candidates",
+        {"service_id": service_id, "evidence_id": evidence_id},
+        trace=trace,
+    ).rows
+    observed = [row for row in rows if row["observed"]]
+    candidates = observed or [
+        row
+        for row in rows
+        if keys.intersection(
+            [
+                row["account"].get("identifier"),
+                *row["emails"],
+                *row["account"].get("previous_identifiers", []),
+                *(row["pending_emails"] if login_change and not old_email else []),
+            ]
+        )
+    ]
+    if len(candidates) > 1:
+        raise ValueError(f"Ambiguous account identity for service {service_id}")
+    if candidates and old_email and not observed:
+        candidate = candidates[0]
+        if old_email not in {
+            candidate["account"].get("identifier"),
+            *candidate["emails"],
+            *candidate["account"].get("previous_identifiers", []),
+        }:
+            candidates = []
+    if login_change and rows and not candidates:
+        raise ValueError(f"Unresolved account identity for email change on service {service_id}")
+    account = candidates[0]["account"] if candidates else {}
+    result = {
+        "id": account.get("id", _id("account", service_id, identifier)),
+        "identifier": account.get("identifier") or identifier,
+    }
+    if login_change:
+        previous = set(account.get("previous_identifiers", []))
+        previous.add(result["identifier"])
+        previous.add(change.new_email.strip().lower())
+        if change.old_email:
+            previous.add(change.old_email.strip().lower())
+        if order >= account.get("identifier_order", ""):
+            result.update(identifier=change.new_email.strip().lower(), identifier_order=order)
+        previous.discard(result["identifier"])
+        result["previous_identifiers"] = sorted(previous)
+    return result
+
+
 def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
     """Merge observations and return aggregate counts for the user's graph."""
     g = db.user_graph(uid)
@@ -158,10 +221,11 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
         identifier = identifier.strip().lower()
         service = _service(event, by_service)
         policy = by_service.get(service.id)
-        account_id = _id("account", service.id, identifier)
         evidence_id = _id("evidence", event.inbox, event.msg_id)
         at = event.date.astimezone(UTC).isoformat()
         order = at + "|" + event.msg_id + "|" + event.inbox
+        identity = _account_identity(g, event, service.id, identifier, evidence_id, order, trace=trace)
+        account_id = identity["id"]
         evidence = {
             "id": evidence_id,
             "msg_id": event.msg_id,
@@ -179,9 +243,8 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
             {
                 "service": service.model_dump(mode="json", exclude_none=True),
                 "account": {
-                    "id": account_id,
+                    **identity,
                     "service_id": service.id,
-                    "identifier": identifier,
                     "display": service.name,
                     "modelled": service.modelled,
                 },

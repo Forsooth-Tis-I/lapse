@@ -173,7 +173,7 @@ def test_compilation_expands_role_combinations_and_skips_missing_roles(isolated_
 
 
 def test_policy_graph_writes_templates_changes_and_carriers(isolated_graph, fixture_policy, monkeypatch):
-    monkeypatch.setattr(compiler, "policy_graph", lambda: isolated_graph)
+    monkeypatch.setattr(compiler.db, "policy_graph", lambda: isolated_graph)
     policies, carriers = fixture_policy
     compiler.write_policy_graph(policies, carriers)
     compiler.write_policy_graph(policies, carriers)

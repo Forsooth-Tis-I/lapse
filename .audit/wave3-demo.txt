@@ -1,0 +1,12 @@
+SIMULATION ONLY: resets lapse:u:demo; browser, inbox, OTP and delivery are synthetic.
+1. Public fixture loaded: 140 ms; trace queries=22
+   signals=2; notify payloads=2; delivery=FakeRedis only
+2. Detectors raised reissue and closing signals; notify payloads captured: 85 ms; trace queries=46
+   phone steps=7; projected exposure=11->0
+3. Phone fix plan and Canva T1 step built: 5519 ms; trace queries=1524
+4. Approval minted, consumed once, and execute_change jobs queued: 31 ms; trace queries=8
+   done=2; awaiting_user=6; synthetic inbox proofs=2
+5. Worker dispatched real handlers with simulated T1/T2 browser: 1793 ms; trace queries=148
+   T3 account=google; status=done; actual combined exposure=12->5
+6. Synthetic confirmation verified T3, repointed USES, and recomputed exposure: 631 ms; trace queries=91
+SIMULATION PASS: 1839 trace queries; 12 captured notifications; 8.21s. Remaining T3 steps await the user; no real accounts touched.

@@ -153,9 +153,11 @@ def apply_policy_event(event_id: str, *, dry_run: bool = False, trace=None) -> d
                 if row["root"].get("status") in {"retiring", "closing"}
             ]
             before = _snapshot(g, roots, trace=trace)
-            working = g.copy(f"lapse:sandbox:policy:{uuid4().hex}") if dry_run else g
+            working = db.copy_graph(g, f"lapse:sandbox:policy:{uuid4().hex}") if dry_run else g
             try:
-                compile_user_graph(working, policies, account_ids=[row["id"] for row in accounts])
+                compile_user_graph(
+                    working, policies, account_ids=[row["id"] for row in accounts], trace=trace
+                )
                 after = _snapshot(working, roots, trace=trace)
             finally:
                 if dry_run:

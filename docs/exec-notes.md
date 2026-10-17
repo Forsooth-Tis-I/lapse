@@ -59,17 +59,17 @@ If a recipe partially changes an account before fallback, inspect the service st
 
 `verify_pending(uid, trace=None)` checks changes in `running` or `awaiting_user` after browser execution has released them. Each change stores `started_at`. Evidence must support that exact account, arrive later than the start, identify a contact change, come from a service domain and match a procedure regex. A replacement must appear in the message. The parser must identify the intended replacement and the confirmation must describe the changed role. A recovery-phone message cannot confirm an SMS-factor change. A matching subject that omits the replacement remains pending rather than guessing.
 
-Notion and Canva currently have empty policy `confirmation_patterns`. Their recipes can close a change using final browser assertions. Their assisted fallbacks cannot auto-close until the policy owner adds tested confirmation patterns. This package edits only recipe names and the X phone tier, as requested. Ingestion also identifies accounts using service plus email: a confirmation delivered to the new email can support a different account node. The ingestion owner must preserve account identity across email changes before those messages can verify the original change.
+Notion and Canva have conservative completed-email-change patterns. Exact vendor subjects still need live validation. Ingestion preserves an existing Account ID across email changes and associates confirmation evidence with that account. Ambiguous account matches stop ingestion for review.
 
 T4 emits a checklist and an editable request template. It stores a due reminder in Redis, sends the first reminder within a day or by the change deadline, and repeats daily. Completed, skipped and failed changes remove their reminders. No request is submitted automatically.
 
-## Wire these hooks in the lead package
+## Worker integration
 
-- Register `handle_execute_change` for `execute_change` with `lapse.exec.jobs.register_handlers()`. The handler is async; the worker must await it. Job payload is `{"change_id": "..."}`. The module has no registration side effect so importing it before WP5 exists is safe.
-- Call `lapse.exec.t4_offline.register_reminders(scheduler)` once when the worker scheduler starts.
-- Call `verify_pending(uid)` after evidence ingestion and periodically for users with pending changes. No process or scheduler starts on import.
+- Worker startup calls `lapse.exec.jobs.register_handlers()` and awaits `handle_execute_change`. Job payload is `{"change_id": "..."}`.
+- Worker startup registers T4 reminders, checked every minute.
+- The worker calls `verify_pending(uid)` after ingestion and queues verification for every tenant every five minutes. No scheduler starts on import.
 - The approval consumer must mark the exact approved changes `approved` before enqueueing. This handler atomically claims only that status. It does not mint or consume tokens again.
-- Serve screenshots through an authenticated, user-scoped `/api/screens/<uid>/<filename>` route. The latest screenshot is Redis JSON at `lapse:screen:<uid>` with `url` and `caption`.
+- Screenshots use `/api/screens/<uid>/<filename>` and are confined to the selected user’s directory. The local UID selector is not authentication. The latest screenshot is Redis JSON at `lapse:screen:<uid>` with `url` and `caption`.
 - Map notification buttons using `action="open_url"`, `payload={"url": ...}`. SMS notifications include the change ID in the parallel `ExecStep` event and use the existing `otp.wait(uid, change_id)` relay.
 - Keep graph queries traceable by passing the optional `trace` argument. Execution steps publish `ExecStep` JSON through `events.publish(uid, "exec", data)`.
 

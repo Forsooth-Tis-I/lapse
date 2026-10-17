@@ -142,7 +142,9 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
                 root,
                 "Email account is closing",
                 f"{root.address or root.label} closes on {root.closes_at}; "
-                f"you'd lose {len(result.affected_accounts)} accounts." + caveat(result),
+                f"lost outright: {len(result.lost_now_accounts)} accounts; "
+                f"no way back if you forget the password: {len(result.recovery_lost_accounts)} accounts."
+                + caveat(result),
                 root.closes_at,
                 result.id,
             )

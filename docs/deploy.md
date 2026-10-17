@@ -42,9 +42,8 @@ The web image builds the real API client and serves it with nginx on 8080;
 `/api/` is proxied without buffering so SSE events arrive as they happen.
 
 The API, worker, bot and MCP entrypoint implementations must be present before
-starting the stack. MCP's `run()` must select HTTP/SSE transport, bind to
-`0.0.0.0`, and honor `FASTMCP_PORT=8766`; a stdio-only server cannot serve the
-published port. Image builds alone do not verify these service interfaces.
+starting the stack. The MCP image selects streamable HTTP transport and honors `FASTMCP_HOST=0.0.0.0` and
+`FASTMCP_PORT=8766`. Host CLI use still defaults to stdio. Image builds alone do not verify service interfaces.
 
 ## Host services and browser login
 
@@ -87,8 +86,12 @@ implementation must enforce read-only demo mode. Stop exposure with
   6379 and 3000 are not used as host bindings by this Compose file.
 - **Database unavailable:** run `make up` and inspect `make logs s=falkordb`.
   Doctor expects the graph module version `42201`, provided by v4.22.1.
-- **LLM model missing:** verify `LLM_BASE_URL` ends at the provider's API base,
-  and that `LLM_MODEL` matches an ID returned by its `/models` endpoint.
+- **LLM completion fails:** verify `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`. Doctor sends a
+  one-token chat completion through the same client as the agent and extractor. OpenCode Go uses
+  `https://opencode.ai/zen/go/v1`; the client supplies its required process-stable session header.
+  `LLM_FALLBACK_MODELS` is an ordered comma-separated list, defaulting to
+  `glm-5.3-flash,qwen3.8-flash`. Set it empty to disable model failover. Requests have a
+  30-second timeout and one SDK retry before trying the next model.
 - **IMAP login fails:** enable IMAP and use an app password where required.
   Doctor only logs in and out; it never fetches messages.
 - **Browser missing:** install the browser extra and Chromium using the commands

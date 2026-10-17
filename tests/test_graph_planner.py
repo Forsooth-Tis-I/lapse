@@ -235,6 +235,7 @@ def test_scenario_plan_apply_repairs_combined_exposure(planner_graph, old, new):
             ).result.affected_accounts
         }
     assert taken | lost == set()
+    assert after.result.recovery_lost_accounts == []
 
 
 def test_inactive_phone_still_measures_lost_access(planner_graph):
@@ -339,6 +340,8 @@ def test_full_policy_fixture_scenario_plan_apply(monkeypatch, old, new):
         }
         plan = planner.plan_for_root("integration-test", old, new)
         assert plan.exposure_after == 0
+        if old == "email_college":
+            assert (plan.lockout_before, plan.exposure_before) == (4, 4)
         if old == "phone_old":
             assert next(step for step in plan.steps if step.account_id == "dropbox").exposure_removed == 1
         for step in plan.steps:
@@ -354,5 +357,22 @@ def test_full_policy_fixture_scenario_plan_apply(monkeypatch, old, new):
                 ).result.affected_accounts
             }
         assert taken | lost == set()
+        assert after.result.recovery_lost_accounts == []
+    finally:
+        g.delete()
+
+
+def test_full_policy_deleting_college_recovery_does_not_clear_exposure(monkeypatch):
+    g = db.graph(f"lapse:test:wave3:recovery-plan:{uuid4().hex}")
+    policies, _ = load_policy_file(ROOT_DIR / "lapse/policy/services.yaml")
+    _, carriers = load_policy_file(ROOT_DIR / "lapse/policy/carriers.yaml")
+    load_persona(g, policies, carriers)
+    monkeypatch.setattr(db, "user_graph", lambda uid: g)
+    monkeypatch.setattr(planner, "_policies", lambda: policies)
+    try:
+        plan = planner.plan_for_root("integration-test", "email_college")
+        assert (plan.lockout_before, plan.lockout_after) == (4, 4)
+        assert (plan.exposure_before, plan.exposure_after) == (4, 4)
+        assert set(plan.remaining_accounts) == {"figma", "canva", "coursera", "microsoft"}
     finally:
         g.delete()

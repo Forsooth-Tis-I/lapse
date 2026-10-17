@@ -79,7 +79,7 @@ def test_retry_then_success(raw, tmp_path):
 def test_failure_not_cached_and_no_llm_ignores_cache(raw, tmp_path):
     cache = tmp_path / "c"
     error = APIConnectionError(request=httpx.Request("POST", "https://example.com"))
-    client = FakeClient([error, error])
+    client = FakeClient([error] * 6)
     email = raw("Welcome!", sender="n@example.com")
     event = next(iter(BatchExtractor(client=client, cache_path=cache, sleep=lambda _: None).extract([email])))
     assert event.event == "signup"

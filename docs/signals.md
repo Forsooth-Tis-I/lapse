@@ -20,7 +20,7 @@ Counts describe outcomes **under the methods we model**. Unmodelled accounts are
 | Detector | Trigger | Message |
 | --- | --- | --- |
 | `reissue_countdown` | Retiring or inactive phone with `reissue_after`. | "••4321 can be reissued to a stranger from DATE. N accounts still use it (M through other accounts)." N is full takeover reach; M excludes direct reach. |
-| `closing_email` | Closing Email with `closes_at`. | "ADDRESS closes on DATE; you'd lose N accounts." N comes from the lockout scenario. |
+| `closing_email` | Closing Email with `closes_at`. | "ADDRESS closes on DATE; lost outright: N accounts; no way back if you forget the password: M accounts." N counts `lost_now_accounts`; M counts `recovery_lost_accounts`. The tiers can overlap. |
 | `domain_expiry` | Email with `email_kind=custom` and an address whose domain has an RDAP expiration event. | "DOMAIN expires on DATE; N accounts could be reached." The detector writes `expires_at` on the Email root and evaluates takeover. |
 | `stale_root` | Inactive phone mentioned within 30 days, or active phone whose last evidence is at least 180 days old. | "Do you still have LABEL?" The message explains the evidence mismatch. |
 | `new_device` | `new_device` evidence supports an account that uses an old `totp_device`. | "Did you move your authenticator app from LABEL?" Show risk opens a lockout scenario for that old device. |
@@ -100,10 +100,8 @@ Replay scans all tenant graphs, so its scanned count can exceed the generated co
   `lapse.signals.jobs.register_handlers()` after the worker registry exists.
 - Schedule `lapse.signals.jobs.run_all_detectors()` at the worker's chosen interval,
   and provide WP5's `lapse.notify.notify(uid, text, buttons)`.
-- Policy replay updates existing methods. Ingestion and planner compilation still
-  reload the original policy YAML; those callers must apply persisted policy events
-  during future recompilation to keep the replayed policy in force. WP9 does not
-  modify those packages.
+- Every policy compilation overlays persisted events from `lapse:policy`, including account exemptions.
+  Reloading policy YAML preserves these events, so ingestion and planner recompilation keep them in force.
 
 ```sh
 uv run pytest -q tests/test_signal_detectors.py tests/test_signal_jobs.py \

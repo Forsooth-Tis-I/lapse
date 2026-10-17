@@ -160,5 +160,5 @@ def test_lockout_survivor_derivation_matches_actual_reached_state(view_graph):
         ("email_college", "m:google:reset_recovery_email", 3),
     ]
     lost = scenarios.explain("test", result.id, "dropbox")
-    assert lost.outcome == "path"
+    assert lost.outcome == "lost_now"
     assert [(step.from_id, step.to_id) for step in lost.steps] == [("phone_old", "dropbox")]

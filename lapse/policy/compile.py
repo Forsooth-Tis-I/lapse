@@ -1,17 +1,19 @@
+import json
 from collections import defaultdict
 from itertools import product
 
 from falkordb.graph import Graph
 
 from lapse.contracts import CarrierRule, ServicePolicy
-from lapse.graph.db import ensure_schema, policy_graph, run
+from lapse.graph import db
+from lapse.graph.db import ensure_schema, run
 
 
 def write_policy_graph(
     policies: list[ServicePolicy], carriers: list[CarrierRule], *, g: Graph | None = None
 ) -> None:
     if g is None:
-        g = policy_graph()
+        g = db.policy_graph()
     services, methods, changes = [], [], []
     for policy in policies:
         service_id = policy.service.id
@@ -53,6 +55,9 @@ def compile_user_graph(
         return
     scope = {"all_accounts": account_ids is None, "account_ids": account_ids or []}
     by_service = {policy.service.id: policy for policy in policies}
+    overlays = defaultdict(list)
+    for row in run(db.policy_graph(), "compile_policy_events", trace=trace).rows:
+        overlays[row["service_id"]].append(json.loads(row["diff"]))
     methods, needs = [], []
     for row in run(g, "compile_accounts", scope, trace=trace).rows:
         account = row["account"]
@@ -64,6 +69,12 @@ def compile_user_graph(
             if use["root_id"] is not None:
                 roles[use["role"]].add(use["root_id"])
         for template in policy.methods:
+            if any(
+                not account.get(diff["exempt_account_property"], False)
+                and set(diff["disable_needs_roles"]).intersection(template.needs_roles)
+                for diff in overlays[account["service_id"]]
+            ):
+                continue
             if any(roles[role] for role in template.requires_absent_roles):
                 continue
             if not template.needs_roles and not template.needs_password:

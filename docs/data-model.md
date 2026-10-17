@@ -56,7 +56,7 @@ A question mark marks an optional property. Fields on later work-package records
 | `(Signal)-[:ABOUT]->(Root)` | The signal's affected root. |
 | `(Scenario)-[:SEED]->(Root)` | Roots initially controlled by the actor. |
 | `(Scenario)-[:REACHED]->(Account or Root)` | `round`, `via`; records the method that established control. |
-| `(target)-[:DERIVED]->(need)` | `scenario`, `basis`, `method`, `method_label`, `round`; retains each prerequisite for an explanation. `basis` distinguishes actual `reached` derivations from lockout `baseline` derivations. |
+| `(target)-[:DERIVED]->(need)` | `scenario`, `basis`, `method`, `method_label`, `round`; retains each prerequisite for an explanation. `basis` distinguishes actual `reached` derivations from lockout `baseline` and `recovery_baseline` derivations. |
 | `(Plan)-[:HAS_STEP]->(Change)` | `order`; the ordered repair steps. |
 | `(Change)-[:BEFORE]->(Change)` | Execution ordering. |
 | `(Change)-[:FOR]->(Account)` | The account being changed. |
@@ -96,7 +96,7 @@ A takeover scenario seeds the roots acquired by a stranger and gives that actor 
 
 `ENABLES` supports a sound lower bound for password-free reachability. It cannot represent an AND gate and does not replace closure. GitHub's fixture reset requires both `email_primary` and `device_phone`; email alone creates no ENABLES shortcut to GitHub.
 
-Scenario claims are always qualified as "under the methods we model". Accounts with `modelled=false`, such as fixture Splitwise, have no compiled methods and are "unknown, not safe". In lockout results, `affected_accounts` contains accounts reachable in the no-loss baseline but unreachable after the loss. Accounts already unreachable are excluded.
+Scenario claims are always qualified as "under the methods we model". Accounts with `modelled=false`, such as fixture Splitwise, have no compiled methods and are "unknown, not safe". In lockout results, `lost_now_accounts` contains accounts unreachable even with passwords. `recovery_lost_accounts` contains accounts that lose their password-free recovery route. Each list compares its own no-loss baseline with access after the loss, excluding accounts already unreachable in that tier. `affected_accounts` is their union, and `direct_accounts` is the subset attached directly to a lost root. The two tier lists can overlap and default to empty when reading older scenarios.
 
 ## How the closure works
 
@@ -104,14 +104,14 @@ Scenario claims are always qualified as "under the methods we model". Accounts w
 
 Each round adds new targets until no target is gained. Methods sort by ID, so competing methods in the same earliest round produce one deterministic derivation. The result retains the target's round, selected method, and every need. An unseeded cycle never starts. The Python loop does not substitute ordinary graph reachability for the database's AND check.
 
-Takeover seeds the acquired roots without passwords. Lockout compares two closures with password knowledge: held phones and devices before the loss, then those possession roots minus the lost roots. Mailbox methods granting a lost Email root are disabled in the second closure. The difference between account sets is the loss attributable to this scenario.
+Takeover seeds the acquired roots without passwords. For immediate lockout, compare closures with password knowledge before and after losing the requested roots. Mailbox methods granting a lost Email root are disabled after the loss. For recovery loss, run password-free closures from the possession roots and mailboxes available in each corresponding password-aware closure. This models forgetting an account password while retaining access to other inboxes. A password-only college mailbox therefore remains a recovery channel before closure; an inbox indirectly lost through a missing phone or second factor is unavailable afterward. Each tier reports only the difference between its before and after account sets.
 
-SEED and REACHED describe the actor's actual closure. DERIVED edges with `basis='reached'` preserve its earliest derivations. Lockout also stores `basis='baseline'` derivations so an unreachable account still has an explanation. `explain` chooses the baseline for lockout and includes every AND branch, ordered by round from prerequisites to account. Graph views use actual reached derivations, so a surviving account shows the route it retains. Evidence comes from SUPPORTS and MENTIONS on the path's nodes. Pruning removes both derivation sets with scenarios older than the latest 20.
+SEED and REACHED describe the actor's actual closure. DERIVED edges with `basis='reached'` preserve its earliest derivations. Lockout also stores `basis='baseline'` and `basis='recovery_baseline'` derivations. `explain` uses the immediate-loss baseline for `outcome='lost_now'` or the recovery baseline for `outcome='recovery_lost'`, retaining every AND branch. An account in both tiers receives the immediate-loss explanation. Takeover retains `outcome='path'`. Steps run from prerequisites to account, ordered by round. Graph views use actual reached derivations, so a surviving account shows the route it retains. Evidence comes from SUPPORTS and MENTIONS on the path's nodes. Pruning removes all derivation sets with scenarios older than the latest 20.
 
 Planner exposure uses this same evaluator in `GRAPH.COPY` sandboxes, serialized with the Redis lock
 `lapse:lock:graph-copy` and bounded retry for fork conflicts. Phone plans count the union of takeover and lockout;
-email/device plans count lockout and domain plans count takeover. The original baseline account set remains
-fixed across changes. An inactive phone is restored to the before-loss possession baseline. Removing an
+email/device plans count the union of both lockout tiers and domain plans count takeover. Both original
+lockout baseline account sets remain fixed across changes. An inactive phone is restored to the before-loss possession baseline. Removing an
 account's only sign-in method cannot make a plan appear to repair that account. Plans persist both component
 counts, exact remaining account IDs, unknown account IDs, and a note. Each Change groups an account's roles
 on the old root in `roles`, retaining `role` for older consumers and `title` for display. Recompilation uses

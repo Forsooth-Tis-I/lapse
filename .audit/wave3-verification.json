@@ -1,0 +1,209 @@
+{
+  "verification": {
+    "pytest": "649 passed in 98.56s",
+    "ruff": "clean",
+    "demo": "PASS; 1839 trace queries; 8.21s",
+    "doctor_llm": "One-token chat completion succeeded",
+    "doctor_other_failures": [
+      "persona.local.yaml absent",
+      "shared ports 6380, 3001 and 8766 occupied"
+    ],
+    "mcp": "HTTP initialize and 11-tool discovery passed; 0.0.0.0 bind verified on isolated test port 18766",
+    "uv_lock": "unchanged; python-telegram-bot 22.8 application construction and tests passed"
+  },
+  "chat": [
+    {
+      "prompt": "what happens if someone gets my old number?",
+      "validated": true,
+      "seconds": 33.459,
+      "text": "Under the methods we model, takeover: directly: 5; through Gmail: 5 more. Affected accounts: Amazon India, Google, Swiggy, X, Zomato, Dropbox, LinkedIn, Notion, PayPal, Spotify. Unknown, not safe: splitwise. Plan the fix next.",
+      "tool_calls": [
+        "resolve",
+        "takeover_if_reassigned"
+      ],
+      "diagnostics": {
+        "llm_tool_calls": [
+          "resolve",
+          "takeover_if_reassigned"
+        ],
+        "fallback_used": false,
+        "guard_regenerated": true,
+        "llm_requests": 4,
+        "llm_attempts": 4,
+        "model_fallback_used": false
+      },
+      "buttons": [
+        "Plan the fix",
+        "Show risk"
+      ]
+    },
+    {
+      "prompt": "why is dropbox at risk?",
+      "validated": true,
+      "seconds": 19.57,
+      "text": "Under the methods we model, risk: \u2022\u20224321 (Vi) to Google through Reset through recovery phone then SMS; Google to demo@example.com through Open the hosted mailbox; demo@example.com to Dropbox through Reset through login email then SMS; \u2022\u20224321 (Vi) to Dropbox through Reset through login email then SMS. Review all required method branches, then plan the fix.",
+      "tool_calls": [
+        "resolve",
+        "explain"
+      ],
+      "diagnostics": {
+        "llm_tool_calls": [
+          "resolve",
+          "explain"
+        ],
+        "fallback_used": false,
+        "guard_regenerated": true,
+        "llm_requests": 4,
+        "llm_attempts": 4,
+        "model_fallback_used": false
+      },
+      "buttons": []
+    },
+    {
+      "prompt": "what do I lose when my college email closes?",
+      "validated": true,
+      "seconds": 13.656,
+      "text": "Under the methods we model, lost outright: 0 (none); no way back if you forget the password: 4 (Canva, Coursera, Figma, Microsoft). Unknown, not safe: splitwise. Plan the fix next.",
+      "tool_calls": [
+        "resolve",
+        "lockout_if_lost"
+      ],
+      "diagnostics": {
+        "llm_tool_calls": [
+          "resolve",
+          "lockout_if_lost"
+        ],
+        "fallback_used": false,
+        "guard_regenerated": true,
+        "llm_requests": 4,
+        "llm_attempts": 4,
+        "model_fallback_used": false
+      },
+      "buttons": [
+        "Plan the fix",
+        "Show risk"
+      ]
+    },
+    {
+      "prompt": "plan the fix for my old number",
+      "validated": true,
+      "seconds": 21.516,
+      "text": "Under the methods we model, planned exposure: 11 to 0. Takeover: 10 to 0; lockout: 10 to 0. 1. Move Google's recovery phone and 2-Step phone (T3, proposed); 2. Move X's login phone (T2, proposed); 3. Move Amazon.in's login phone (T3, proposed); 4. Move Dropbox's 2-Step phone (T3, proposed); 5. Move PayPal's 2-Step phone (T3, proposed); 6. Move Swiggy's login phone (T3, proposed); 7. Move Zomato's login phone (T3, proposed). Exposure counts distinct affected accounts under the methods we model. Unknown, not safe: splitwise. Review the steps before approval.",
+      "tool_calls": [
+        "resolve",
+        "plan_retirement"
+      ],
+      "diagnostics": {
+        "llm_tool_calls": [
+          "resolve",
+          "plan_retirement"
+        ],
+        "fallback_used": false,
+        "guard_regenerated": true,
+        "llm_requests": 4,
+        "llm_attempts": 4,
+        "model_fallback_used": false
+      },
+      "buttons": [
+        "Approve all T1\u2013T3",
+        "Review in web"
+      ]
+    },
+    {
+      "prompt": "is splitwise safe?",
+      "validated": true,
+      "seconds": 12.24,
+      "text": "This account is unmodelled; unknown, not safe. Choose a known root to review under the methods we model.",
+      "tool_calls": [
+        "resolve",
+        "account_info"
+      ],
+      "diagnostics": {
+        "llm_tool_calls": [
+          "resolve",
+          "account_info"
+        ],
+        "fallback_used": false,
+        "guard_regenerated": true,
+        "llm_requests": 4,
+        "llm_attempts": 4,
+        "model_fallback_used": false
+      },
+      "buttons": []
+    },
+    {
+      "prompt": "approve",
+      "validated": true,
+      "seconds": 2.707,
+      "text": "Review the plan to approve changes under the methods we model.",
+      "tool_calls": [
+        "plan_status"
+      ],
+      "diagnostics": {
+        "llm_tool_calls": [],
+        "fallback_used": true,
+        "guard_regenerated": false,
+        "llm_requests": 1,
+        "fallback_reason": "ValueError",
+        "llm_attempts": 1,
+        "model_fallback_used": false
+      },
+      "buttons": [
+        "Approve all T1\u2013T3",
+        "Review in web"
+      ]
+    }
+  ],
+  "lockout": [
+    {
+      "roots": [
+        "email_college"
+      ],
+      "lost_now": 0,
+      "recovery_lost": 4,
+      "union": 4
+    },
+    {
+      "roots": [
+        "email_college",
+        "phone_old"
+      ],
+      "lost_now": 5,
+      "recovery_lost": 14,
+      "union": 14
+    }
+  ],
+  "plans": [
+    {
+      "root": "phone_old",
+      "before": 11,
+      "after": 0
+    },
+    {
+      "root": "email_college",
+      "before": 4,
+      "after": 0
+    }
+  ],
+  "extraction": {
+    "batches_succeeded": 2,
+    "batches_attempted": 2,
+    "json_parsed": 2,
+    "model_fallback_used": false,
+    "accounts": 14,
+    "test_graph_deleted": true
+  },
+  "review": {
+    "independent": "same provider",
+    "findings_fixed": [
+      "conflicting old email account attribution",
+      "doctor alternate-root configuration"
+    ],
+    "remaining_material_findings": []
+  },
+  "risks": [
+    "Live vendor selectors and final confirmation subjects remain unverified.",
+    "Recovery explanations start at the baseline mailbox rather than reconstructing upstream mailbox-host provenance.",
+    "Local tenant selection is not authentication."
+  ]
+}

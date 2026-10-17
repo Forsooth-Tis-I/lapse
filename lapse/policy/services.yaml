@@ -329,7 +329,8 @@ services:
       - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.notion.com/help/cant-log-in'}
       - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.notion.com/help/log-in-and-out'}
     change:
-      - {root_kind: email, tier: 1, requires: [email_otp_new], settings_url: null, recipe: notion_change_email, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/account-settings'}
+      # Account-settings docs describe verification codes, not final email subjects.
+      - {root_kind: email, tier: 1, requires: [email_otp_new], settings_url: null, recipe: notion_change_email, confirmation_patterns: ['(?i)\bemail address (?:has been |was |is now )?(?:changed|updated)\b'], doc_url: 'https://www.notion.com/help/account-settings'}
       - {root_kind: phone, tier: 3, requires: [old_otp, new_otp], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/two-step-verification'}
   # Local email/password accounts. Google and SAML SSO use the identity provider instead.
   # Email reset is followed by enrolled 2FA; email-change proof destinations remain unverified.
@@ -359,7 +360,8 @@ services:
       - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.canva.com/help/reset-password/'}
       - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.canva.com/help/sign-up-log-in/'}
     change:
-      - {root_kind: email, tier: 1, requires: [email_otp_old, email_otp_new], settings_url: 'https://www.canva.com/settings/your-account', recipe: canva_change_email, confirmation_patterns: [], doc_url: 'https://www.canva.com/help/change-email/'}
+      # Change-email docs describe codes to both inboxes but do not publish final subjects.
+      - {root_kind: email, tier: 1, requires: [email_otp_old, email_otp_new], settings_url: 'https://www.canva.com/settings/your-account', recipe: canva_change_email, confirmation_patterns: ['(?i)\bemail address (?:has been |was |is now )?(?:changed|updated)\b'], doc_url: 'https://www.canva.com/help/change-email/'}
   # Local learner accounts; optional authenticator 2FA remains after password reset.
   # Institution SSO and verification details of email changes remain outside this policy.
   - service: {id: coursera, name: Coursera, domains: [coursera.org, info.coursera.org, mail.coursera.org, t.mail.coursera.org], category: education, modelled: true, doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}

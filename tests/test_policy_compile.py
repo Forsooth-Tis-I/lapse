@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
 from lapse.contracts import ServicePolicy
+from lapse.graph import db
 from lapse.policy.compile import compile_user_graph, write_policy_graph
 
 pytestmark = pytest.mark.db
@@ -139,3 +142,63 @@ def test_policy_graph_can_be_selected_explicitly(isolated_graph, policy):
     assert isolated_graph.ro_query(
         "MATCH (m:MethodTemplate {template_id: 'reset_email'}) RETURN m.requires_absent_roles"
     ).result_set == [[["sms_2fa", "totp_device"]]]
+
+
+def test_recompile_keeps_persisted_policy_overlay_and_account_exemptions(compiled_graph, policy, monkeypatch):
+    shared = db.graph(compiled_graph.name + ":policy")
+    monkeypatch.setattr(db, "policy_graph", lambda: shared)
+    try:
+        shared.query(
+            "CREATE (:PolicyEvent {id: 'retire_email_reset', service_id: 'service', diff: $diff})",
+            {
+                "diff": json.dumps(
+                    {
+                        "disable_needs_roles": ["login_email"],
+                        "exempt_account_property": "subscriber",
+                    }
+                )
+            },
+        )
+        compiled_graph.query("MATCH (a:Account {id: 'b'}) SET a.subscriber = true")
+        write_policy_graph([policy], [], g=shared)
+        assert shared.ro_query("MATCH (e:PolicyEvent) RETURN e.id").result_set == [["retire_email_reset"]]
+        for account_ids in (None, ["a", "b"]):
+            traces = []
+            compile_user_graph(
+                compiled_graph,
+                [policy],
+                account_ids=account_ids,
+                trace=lambda *row, traces=traces: traces.append(row),
+            )
+            assert compiled_graph.ro_query(
+                "MATCH (m:Method)-[:GRANTS]->(a:Account) RETURN a.id, m.id ORDER BY a.id"
+            ).result_set == [["b", "m:b:reset_email"]]
+            assert "compile_policy_events" in [row[0] for row in traces]
+    finally:
+        shared.delete()
+
+
+@pytest.mark.parametrize("service", ["notion", "canva"])
+def test_email_confirmation_patterns_require_completed_change(service):
+    import re
+
+    from lapse.policy.loader import default_policy_paths, load_policy_file
+
+    policy = next(
+        policy
+        for path in default_policy_paths()
+        for policy in load_policy_file(path)[0]
+        if policy.service.id == service
+    )
+    patterns = next(change.confirmation_patterns for change in policy.change if change.root_kind == "email")
+    assert any(re.search(pattern, "Your email address has been changed") for pattern in patterns)
+    assert not any(
+        re.search(pattern, text)
+        for pattern in patterns
+        for text in (
+            "Verify your new email address",
+            "Your verification code to change your email address",
+            "New email alias added",
+            "Your email address has not been changed",
+        )
+    )
