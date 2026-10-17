@@ -1,0 +1,8 @@
+ts	phase	decision	why	evidence	result
+2026-10-17T14:34:30.996947+00:00	design	Use typed recipe steps and one runner	Three recipes share lifecycle and proof handling	lapse/exec/recipes/dsl.py	implemented
+2026-10-17T14:34:30.996947+00:00	inbox	Poll IMAP independently of ingestion checkpoints	Ingest parsing truncates body and removes HTML links	lapse/exec/inbox_codes.py	20 tests passed
+2026-10-17T14:34:30.996947+00:00	verification	Record an execution start and exclude active browser work	Old evidence and verification races must not complete active work	lapse/graph/queries/exec_pending.cypher	isolated graph test passed
+2026-10-17T14:34:30.996947+00:00	policy	Choose X login-phone replacement for T2	Direct replacement is the narrowest documented candidate	docs/exec-notes.md	live validation pending
+2026-10-17T14:39:53.629745+00:00	review	Require positive replacement and matching contact role	Previous-contact and recovery-phone evidence could close the wrong change	tests/test_exec_flows.py	regressions passed
+2026-10-17T14:39:53.629745+00:00	browser	Open verification links in a guarded temporary context and disable cache	Independent Chromium probe found a token persisted in the saved profile cache	tests/test_exec_browser.py	profile-byte regression passed
+2026-10-17T14:39:53.629745+00:00	verification	Run executor tests and the non-DB suite	Check behavior without exercising real accounts	tests/test_exec_graph.py; tests/test_exec_recipes.py	111 executor tests and 270 non-DB tests passed; Ruff clean
