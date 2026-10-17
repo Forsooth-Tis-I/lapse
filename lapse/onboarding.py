@@ -85,3 +85,35 @@ def load_persona_local(uid: str, path="persona.local.yaml", *, trace=None) -> di
             db.run(g, f"onboarding_{kind}", {"roots": batch}, write=True, trace=trace)
         counts[f"{kind}s"] = len(batch)
     return counts
+
+
+def apply_declared_uses(uid: str, path="persona.local.yaml", *, trace=None) -> int:
+    """Write user-declared USES edges (facts emails never show, e.g. Google's 2-Step phone).
+
+    persona YAML:
+      declared_uses:
+        - {service: google, account: email_primary, role: sms_2fa, root: phone_old}
+    `account` names the email root the account signs in with. Edges are confirmed, source=declared.
+    Accounts not yet discovered are skipped; the next ingest run applies them.
+    """
+    from lapse.contracts import UseRole
+    from lapse.policy.compile import compile_user_graph
+    from lapse.policy.loader import default_policy_paths, load_policy_file
+
+    persona = yaml.safe_load(Path(path).read_text()) or {}
+    g = db.user_graph(uid)
+    touched: set[str] = set()
+    for item in persona.get("declared_uses") or []:
+        role = UseRole(item["role"])
+        rows = db.run(
+            g,
+            "onboarding_declared_use",
+            {"service_id": item["service"], "account_root": item["account"], "role": role.value, "root_id": item["root"]},
+            write=True,
+            trace=trace,
+        ).rows
+        touched.update(row["account_id"] for row in rows)
+    if touched:
+        policies = [policy for p in default_policy_paths() for policy in load_policy_file(p)[0]]
+        compile_user_graph(g, policies, account_ids=sorted(touched))
+    return len(touched)

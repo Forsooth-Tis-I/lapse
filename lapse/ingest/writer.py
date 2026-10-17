@@ -344,7 +344,11 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
                 use(resolution, role, event.event in _PHONE_CONFIRMING)
 
         for address in event.emails_mentioned:
-            mentions.add(email(address).root.id)
+            # Only the user's own addresses become MENTIONS; support/sender addresses are not roots.
+            wanted = address.strip().lower()
+            known = [r for r in roots.values() if r.kind == "email" and (r.address or "").lower() == wanted]
+            if known:
+                mentions.add(known[0].id)
         if (
             event.event == EventKind.deactivation_notice
             and event.deadline

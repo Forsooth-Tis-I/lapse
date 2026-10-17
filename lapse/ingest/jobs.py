@@ -32,5 +32,9 @@ def handle_ingest_run(uid: str, payload: dict) -> dict:
     finally:
         events.close()
     counts = write_events(uid, [])
+    if persona_path.is_file():
+        from lapse.onboarding import apply_declared_uses
+
+        counts["declared_uses"] = apply_declared_uses(uid, persona_path)
     counts["llm"] = extraction_stats
     return counts

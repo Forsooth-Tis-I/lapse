@@ -29,3 +29,8 @@ devices:
     name: "Main phone"
     kind: phone
     status: active
+# Facts emails never reveal (e.g. which phone a Google account uses for 2-Step).
+# `account` is the email root the account signs in with. Applied after every ingest run.
+declared_uses:
+  - {service: google, account: email_primary, role: sms_2fa, root: phone_old}
+  - {service: google, account: email_primary, role: recovery_phone, root: phone_old}
