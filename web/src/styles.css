@@ -2067,3 +2067,42 @@ td:nth-child(3) code {
 .prerequisite-list li {
   margin-bottom: 8px;
 }
+
+.decision-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.decision-summary strong { color: var(--ink); }
+.root-plan-form { display: flex; align-items: end; gap: 16px; margin-bottom: 24px; }
+.root-plan-form label { display: grid; gap: 8px; color: var(--muted); font-size: 13px; }
+.root-plan-form select { min-width: 300px; }
+.additional-details { margin: 12px 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.additional-details summary { cursor: pointer; }
+.additional-details dl { display: grid; gap: 8px; margin-top: 10px; }
+.additional-details dt { color: var(--ink); }
+.trace-panel { margin-bottom: 24px; }
+.trace-panel .table-scroll { height: 330px; overflow: auto; scrollbar-gutter: stable; }
+.trace-panel thead { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.trace-panel td { font-size: 13px; }
+.trace-panel td code { font-size: 12px; }
+.trace-panel .selected-trace { background: var(--raised); outline: 1px solid var(--sage); outline-offset: -1px; }
+.agent-top .agent-screen img, .agent-top .screen-empty { height: 220px; object-fit: contain; }
+.chat-page { padding: 36px 44px; max-width: 1120px; margin: 0 auto; }
+.chat-page[hidden] { display: none; }
+.chat-page .chat-panel { height: min(740px, calc(100vh - 200px)); min-height: 420px; }
+@media (min-width: 1700px) and (min-height: 900px) {
+  .map-workspace { height: 550px; min-height: 550px; }
+  .explanation-panel { max-height: 548px; }
+  .graph-page .section-heading h1 { min-height: 57px; }
+}
+@media (max-width: 700px) {
+  .root-plan-form { align-items: stretch; flex-direction: column; }
+  .root-plan-form select { min-width: 0; width: 100%; }
+  .chat-page { padding: 20px 14px; }
+  .decision-summary { display: grid; }
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import os
@@ -39,7 +40,7 @@ DATA_DIR = ROOT_DIR / "data"
 app = FastAPI(title="Lapse API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-Lapse-Uid"],
 )
@@ -102,7 +103,8 @@ def graph_call(uid: str, module: str, name: str, *args, audit_args=None, **kwarg
         with context as trace:
             if "trace" in inspect.signature(function).parameters:
                 kwargs["trace"] = trace
-            return function(uid, *args, **kwargs)
+            result = function(uid, *args, **kwargs)
+            return asyncio.run(result) if inspect.iscoroutine(result) else result
     except KeyError as exc:
         raise HTTPException(404, "The requested item does not exist for this user.") from exc
     except ValueError as exc:

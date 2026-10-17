@@ -7,7 +7,15 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App, {mergeTrace, currentPlans} from "./App";
+import { createMockApi } from "./api/mock";
+import type { ToolCallRecord } from "./api";
+
+vi.mock("./api", async () => {
+  const actual = await vi.importActual<typeof import("./api")>("./api");
+  const { createMockApi } = await import("./api/mock");
+  return { ...actual, api: createMockApi(), isMock: true };
+});
 
 vi.mock("./components/AccountGraph", () => ({
   AccountGraph: () => <div aria-label="Graph canvas" />,
@@ -65,4 +73,20 @@ describe("scenario and execution integration", () => {
       screen.queryByText("Email reset AND SMS code"),
     ).not.toBeInTheDocument();
   });
+});
+
+
+it("keeps newer SSE records when a full history snapshot arrives later", () => {
+  const row: ToolCallRecord = {id: "live", at: "2026-10-17T11:00:00Z", tool: "explain", args: {}, query_name: "explain", ms: 1, rows: 2, outcome: "ok"};
+  const history = Array.from({length: 150}, (_, i) => ({...row, id: String(i), at: "2026-10-17T10:00:00Z"}));
+  const merged = mergeTrace([row], history);
+  expect(merged).toHaveLength(150);
+  expect(merged.at(-1)).toEqual(row);
+});
+
+it("offers only the latest plan for each root, avoiding duplicate bulk approvals", async () => {
+  const plan = await createMockApi().createPlan({old_root:"phone_old", new_root:"phone_new"});
+  const latest = {...plan, id: "latest", created_at: "2026-10-18T10:00:00Z"};
+  const older = {...plan, created_at: "2026-10-17T10:00:00Z"};
+  expect(currentPlans([latest, older])).toEqual([latest]);
 });

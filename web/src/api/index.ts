@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   rootSchema,
+  chatReplySchema,
   graphDataSchema,
   scenarioResultSchema,
   explanationSchema,
@@ -21,12 +22,13 @@ import {
 import { createMockApi } from "./mock";
 export * from "./contracts";
 
-export const isMock = import.meta.env.VITE_USE_MOCK !== "false";
+export const isMock = import.meta.env.VITE_USE_MOCK === "true";
 export const baseUrl = (
-  import.meta.env.VITE_API_URL || "http://localhost:8000"
+  import.meta.env.VITE_API_URL || "/api"
 ).replace(/\/$/, "");
 const segment = encodeURIComponent;
 export const endpoints = {
+  chat: "/api/chat",
   roots: "/api/roots",
   graph: "/api/graph",
   scenarios: "/api/scenarios",
@@ -46,12 +48,13 @@ export const endpoints = {
 };
 
 export function createRestApi(url = baseUrl): LapseApi {
+  const origin = url.replace(/\/$/, "").replace(/\/api$/, "");
   async function request<T>(
     path: string,
     schema: z.ZodType<T>,
     payload?: unknown,
   ): Promise<T> {
-    const response = await fetch(`${url}${path}`, {
+    const response = await fetch(`${origin}${path}`, {
       method: payload === undefined ? "GET" : "POST",
       headers:
         payload === undefined
@@ -64,6 +67,8 @@ export function createRestApi(url = baseUrl): LapseApi {
     return schema.parse(await response.json());
   }
   return {
+    chat: (text) => request(endpoints.chat, chatReplySchema, {text}),
+    getPlans: () => request(endpoints.plans, z.array(planSchema)),
     getRoots: () => request(endpoints.roots, z.array(rootSchema)),
     getGraph: (scenario) =>
       request(
@@ -89,7 +94,14 @@ export function createRestApi(url = baseUrl): LapseApi {
         `${endpoints.trace}${since ? `?since=${segment(since)}` : ""}`,
         z.array(toolCallRecordSchema),
       ),
-    getScreen: () => request(endpoints.screen, agentScreenSchema),
+    getScreen: async () => {
+      const screen = await request(endpoints.screen, agentScreenSchema);
+      if (screen.url) {
+        const path = new URL(screen.url, window.location.origin).pathname;
+        if (path.startsWith("/api/screens/")) screen.url = `${origin}${path}`;
+      }
+      return screen;
+    },
     getStats: () => request(endpoints.stats, graphStatsSchema),
     onboard: (input) => {
       const validated = onboardingRequestSchema.safeParse(input);
@@ -102,8 +114,13 @@ export function createRestApi(url = baseUrl): LapseApi {
       );
     },
     runIngest: () => request(endpoints.ingest, ingestRunSchema, {}),
-    subscribe: (onEvent, onError) => {
-      const stream = new EventSource(`${url}${endpoints.events}`);
+    subscribe: (onEvent, onError, onReconnect) => {
+      const stream = new EventSource(`${origin}${endpoints.events}`);
+      let opened = false;
+      stream.onopen = () => {
+        if (opened) onReconnect?.();
+        opened = true;
+      };
       const receive = (message: MessageEvent<string>) => {
         try {
           onEvent(

@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   CheckCheck,
+  MessageCircle,
   CircleHelp,
   GitBranch,
   Layers3,
@@ -30,14 +31,16 @@ import { AccountGraph } from "./components/AccountGraph";
 import { ExplanationPanel } from "./components/ExplanationPanel";
 import { PlanBoard } from "./components/PlanBoard";
 import { AgentPanel } from "./components/AgentPanel";
+import { ChatPanel } from "./components/ChatPanel";
 import { Onboarding } from "./components/Onboarding";
 
-type Page = "graph" | "plan" | "agent" | "connect";
+type Page = "graph" | "plan" | "agent" | "connect" | "chat";
 type Preset = "takeover" | "lockout" | "both";
 const navigation = [
   { id: "graph", label: "Account map", icon: GitBranch },
   { id: "plan", label: "Fix plan", icon: CheckCheck },
   { id: "agent", label: "Agent activity", icon: Radio },
+  { id: "chat", label: "Chat with Lapse", icon: MessageCircle },
   { id: "connect", label: "Connections", icon: Unplug },
 ] satisfies { id: Page; label: string; icon: typeof GitBranch }[];
 const scenarioOptions = [
@@ -63,6 +66,23 @@ function mergeById<T extends { id: string }>(items: T[], item: T) {
     : [...items, item];
 }
 
+export function mergeTrace(previous: ToolCallRecord[], incoming: ToolCallRecord[]) {
+  return [...new Map([...previous, ...incoming].map((row) => [row.id, row])).values()]
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id)).slice(-150);
+}
+
+export function currentPlans(plans: Plan[]) {
+  const latest = new Map<string, Plan>();
+  for (const plan of [...plans].sort((a, b) => a.created_at.localeCompare(b.created_at))) latest.set(plan.old_root, plan);
+  return [...latest.values()];
+}
+function rootScenarios(roots: Root[]) {
+  return roots.filter((root) =>
+    (root.kind === "phone" && ["retiring", "inactive"].includes(root.status)) ||
+    (root.kind === "email" && ["closing", "closed"].includes(root.status)),
+  ).map((root) => ({kind: root.kind === "phone" ? "takeover" as const : "lockout" as const, root_ids: [root.id]}));
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("graph");
   const [light, setLight] = useState(false);
@@ -73,7 +93,11 @@ export default function App() {
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
   const scenariosRef = useRef(scenarios);
   scenariosRef.current = scenarios;
+  const planRevision = useRef(0);
+  const graphRevision = useRef(0);
+  const [planSelection, setPlanSelection] = useState<string | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [traceSelection, setTraceSelection] = useState<{tool: string; record?: ToolCallRecord} | null>(null);
   const [trace, setTrace] = useState<ToolCallRecord[]>([]);
   const [stats, setStats] = useState<GraphStats | null>(null);
   const [screen, setScreen] = useState<AgentScreen | null>(null);
@@ -108,46 +132,46 @@ export default function App() {
       result.affected_accounts.some((item) => item.node_id === selected),
     ) ?? results[0];
 
+  const refreshPlans = useCallback(async () => {
+    const revision = ++planRevision.current;
+    const values = await api.getPlans();
+    if (revision === planRevision.current) setPlans(values);
+  }, []);
+
   const refreshGraph = useCallback(async () => {
+    const revision = ++graphRevision.current;
     const [nextGraph, nextRoots, nextStats] = await Promise.all([
       api.getGraph(),
       api.getRoots(),
       api.getStats(),
     ]);
+    const requests = rootScenarios(nextRoots);
+    const nextScenarios = await Promise.all(requests.map((request) => api.createScenario(request)));
+    if (revision !== graphRevision.current) return;
     setGraph(nextGraph);
     setRoots(nextRoots);
     setStats(nextStats);
+    setScenarios(nextScenarios);
   }, []);
 
   useEffect(() => {
     let active = true;
     setError("");
     async function load() {
+      const revision = ++graphRevision.current;
       try {
-        const [
-          nextGraph,
-          nextRoots,
-          nextStats,
-          nextTrace,
-          nextScreen,
-          takeover,
-          lockout,
-        ] = await Promise.all([
-          api.getGraph(),
-          api.getRoots(),
-          api.getStats(),
-          api.getTrace(),
-          api.getScreen(),
-          api.createScenario({ kind: "takeover", root_ids: ["phone_old"] }),
-          api.createScenario({ kind: "lockout", root_ids: ["email_college"] }),
+        const [nextGraph, nextRoots, nextStats, , nextTrace, nextScreen] = await Promise.all([
+          api.getGraph(), api.getRoots(), api.getStats(), refreshPlans(), api.getTrace(), api.getScreen(),
         ]);
-        if (!active) return;
+        const nextScenarios = await Promise.all(rootScenarios(nextRoots).map((request) => api.createScenario(request)));
+        if (!active || revision !== graphRevision.current) return;
         setGraph(nextGraph);
         setRoots(nextRoots);
         setStats(nextStats);
-        setTrace(nextTrace);
+        setTrace((previous) => mergeTrace(previous, nextTrace));
         setScreen(nextScreen);
-        setScenarios([takeover, lockout]);
+        setScenarios(nextScenarios);
+        setStreamError("");
       } catch {
         if (active)
           setError(
@@ -162,7 +186,7 @@ export default function App() {
         setStreamError("");
         switch (event.kind) {
           case "trace":
-            setTrace((previous) => mergeById(previous, event.data).slice(-150));
+            setTrace((previous) => mergeTrace(previous, [event.data]));
             break;
           case "scenario": {
             if (
@@ -185,10 +209,13 @@ export default function App() {
             break;
           }
           case "plan":
+            ++planRevision.current;
             setPlans((previous) => mergeById(previous, event.data));
             break;
           case "exec":
             setExecution(event.data);
+            void refreshPlans()
+              .catch(() => setStreamError("Could not refresh the plan."));
             if (event.data.kind === "screenshot")
               void api
                 .getScreen()
@@ -212,11 +239,7 @@ export default function App() {
             break;
           case "stats":
             setStats(event.data);
-            void api
-              .getGraph()
-              .then((value) => {
-                if (active) setGraph(value);
-              })
+            void refreshGraph()
               .catch(() => setStreamError("Could not refresh the graph."));
             break;
           case "other":
@@ -233,12 +256,15 @@ export default function App() {
         if (active)
           setStreamError("Live connection interrupted. Reconnecting…");
       },
+      () => { void load(); },
     );
     return () => {
       active = false;
+      ++planRevision.current;
+      ++graphRevision.current;
       unsubscribe();
     };
-  }, [reload, refreshGraph]);
+  }, [reload, refreshGraph, refreshPlans]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = light ? "light" : "dark";
@@ -246,7 +272,7 @@ export default function App() {
   useEffect(() => {
     setExplanation(null);
     setExplanationError("");
-    if (!selected || !selectedResult) {
+    if (!selected || !selectedResult || graph?.nodes.find((node) => node.id === selected)?.account?.modelled === false) {
       setExplaining(false);
       return;
     }
@@ -269,47 +295,63 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [selected, selectedResult]);
+  }, [selected, selectedResult, graph]);
 
-  function changeStep(step: Change) {
-    setPlans((previous) =>
-      previous.map((plan) =>
-        plan.id === step.plan_id
-          ? {
-              ...plan,
-              steps: plan.steps.map((item) =>
-                item.id === step.id ? step : item,
-              ),
-            }
-          : plan,
-      ),
-    );
+  function changeStep(_step: Change) {
+    void refreshPlans().catch(() => setError("Could not refresh the plan."));
   }
-  async function createPlans() {
+  async function createPlans(rootIds = [...new Set(results.flatMap((result) => result.root_ids))]) {
+    if (creating) return;
     setCreating(true);
     setError("");
     try {
-      const values = await Promise.all([
-        api.createPlan({
-          old_root: "phone_old",
-          new_root: "phone_new",
-          deadline: "2026-10-31",
-        }),
-        api.createPlan({
-          old_root: "email_college",
-          new_root: "email_primary",
-          deadline: "2026-11-15",
-        }),
-      ]);
-      setPlans(values);
+      for (const rootId of rootIds) {
+        const root = roots.find((item) => item.id === rootId);
+        const replacement = roots.find((item) => item.kind === root?.kind && item.status === "active" && item.id !== rootId);
+        const deadline = root?.drop_at ?? root?.closes_at ?? root?.expires_at;
+        const existing = currentPlans(plans).find((plan) => plan.old_root === rootId && plan.new_root === (replacement?.id ?? null) && plan.steps.some((step) => !["done", "skipped"].includes(step.status)));
+        if (existing) continue;
+        const plan = await api.createPlan({
+          old_root: rootId,
+          ...(replacement ? {new_root: replacement.id} : {}),
+          ...(deadline ? {deadline} : {}),
+        });
+        ++planRevision.current;
+        setPlans((previous) => mergeById(previous, plan));
+      }
+      setPlanSelection(null);
+      setPage("plan");
     } catch {
       setError("Could not build the fix plan. Please try again.");
     } finally {
       setCreating(false);
     }
   }
-  const oldPhone = roots.find((root) => root.id === "phone_old");
-  const college = roots.find((root) => root.id === "email_college");
+  async function openChatPath(path: string) {
+    const url = new URL(path, window.location.origin);
+    try {
+      if (url.pathname.startsWith("/plans/")) {
+        const id = decodeURIComponent(url.pathname.slice(7));
+        const revision = planRevision.current;
+        const plan = await api.getPlan(id);
+        if (revision === planRevision.current) setPlans((previous) => mergeById(previous, plan));
+        else await refreshPlans();
+        setPlanSelection(id);
+        setPage("plan");
+      } else if (url.pathname === "/graph") {
+        const id = url.searchParams.get("scenario");
+        if (id) {
+          const scenario = await api.getScenario(id);
+          setScenarios((previous) => [...previous.filter((item) => item.kind !== scenario.kind), scenario]);
+          setPreset(scenario.kind);
+          setDepth("full");
+        }
+        setPage("graph");
+      }
+    } catch { setError("Could not open the linked result. Please try again."); }
+  }
+  const oldPhone = roots.find((root) => root.kind === "phone" && ["retiring", "inactive"].includes(root.status));
+  const college = roots.find((root) => root.kind === "email" && ["closing", "closed"].includes(root.status));
   const verified = plans
     .flatMap((plan) => plan.steps)
     .filter((step) => step.status === "done").length;
@@ -342,7 +384,7 @@ export default function App() {
             <button
               key={item.id}
               className={page === item.id ? "nav-item active" : "nav-item"}
-              onClick={() => setPage(item.id)}
+              onClick={() => { if (item.id === "plan") setPlanSelection(null); setPage(item.id); }}
               aria-current={page === item.id ? "page" : undefined}
             >
               <item.icon size={18} />
@@ -433,7 +475,8 @@ export default function App() {
                 </div>
                 <button
                   className="primary-button"
-                  onClick={() => setPage("plan")}
+                  onClick={() => void createPlans()}
+                  disabled={creating || results.length === 0}
                 >
                   Plan the fix <ArrowUpRight size={17} />
                 </button>
@@ -619,10 +662,18 @@ export default function App() {
                     error={explanationError}
                     results={results}
                     onClose={() => setSelected(null)}
-                    onPlan={() => setPage("plan")}
+                    onPlan={() => void createPlans()}
                   />
                 )}
               </div>
+              <section className="decision-summary" aria-label="How Lapse decided">
+                <strong>How Lapse decided</strong>
+                <span>Depth 1: {directCount} accounts depend directly on the selected roots. Full chain: {fullCount}.</span>
+                <span>{preset === "takeover"
+                  ? "The chain continues through the mailbox recovered by the old phone."
+                  : preset === "lockout" ? "Fresh sign-in requires a route that survives the mailbox closing."
+                  : "Takeover and fresh sign-in lockout are evaluated separately, then accounts are counted once."}</span>
+              </section>
               <div className="graph-bottom">
                 <span>
                   <GitBranch size={14} />
@@ -641,7 +692,9 @@ export default function App() {
           )}
           {page === "plan" && (
             <PlanBoard
-              plans={plans}
+              plans={planSelection ? plans.filter((plan) => plan.id === planSelection) : currentPlans(plans)}
+              roots={roots}
+              onCreateRoot={(rootId) => void createPlans([rootId])}
               onChange={changeStep}
               onCreate={() => void createPlans()}
               creating={creating}
@@ -650,11 +703,34 @@ export default function App() {
           {page === "agent" && (
             <AgentPanel
               trace={trace}
+              selectedTool={traceSelection?.tool}
+              selectedRecord={traceSelection?.record}
               screen={screen}
               stats={stats}
               execution={execution}
             />
           )}
+          <div className="chat-page" hidden={page !== "chat"}>
+            <ChatPanel
+              onPlanRoot={(rootId) => void createPlans([rootId])}
+              onOpenWeb={(path) => void openChatPath(path)}
+              onShowTrace={(tool, record) => { setTraceSelection({tool, record}); setPage("agent"); }}
+              onReply={async () => {
+                try {
+                  const rows = await api.getTrace();
+                  setTrace((previous) => mergeTrace(previous, rows));
+                  return rows;
+                } catch {
+                  setError("Could not refresh the trace.");
+                  return [];
+                }
+              }}
+              onApproveChanges={async (ids) => {
+                for (const id of ids) changeStep(await api.approveChange(id));
+                await refreshPlans();
+              }}
+            />
+          </div>
           {page === "connect" && (
             <Onboarding
               progress={progress}

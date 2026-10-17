@@ -328,3 +328,39 @@ describe("REST and SSE boundary", () => {
     expect(() => decodeEvent({ ...event, type: "scenario" })).toThrow();
   });
 });
+
+
+describe("live integration additions", () => {
+  it("uses relative /api once and accepts actual string tool calls", async () => {
+    const fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({text: "Under the methods we model.", buttons: [{label: "Plan", action: "plan_root", payload: {root_id: "phone_old"}}], tool_calls: ["resolve", "takeover_if_reassigned"]})});
+    vi.stubGlobal("fetch", fetch);
+    const reply = await createRestApi("/api").chat("show risk for 4321");
+    expect(fetch).toHaveBeenCalledWith("/api/chat", expect.objectContaining({body: '{"text":"show risk for 4321"}'}));
+    expect(reply.tool_calls).toEqual(["resolve", "takeover_if_reassigned"]);
+  });
+
+  it("reloads current state on SSE reconnect and closes its subscription", () => {
+    class Stream extends EventTarget {
+      onmessage = null;
+      onerror = null;
+      onopen: (() => void) | null = null;
+      close = vi.fn();
+      constructor(public url: string) { super(); streams.push(this); }
+    }
+    const streams: Stream[] = [];
+    vi.stubGlobal("EventSource", Stream);
+    const reconnect = vi.fn();
+    const receive = vi.fn();
+    const close = createRestApi("/api").subscribe(receive, undefined, reconnect);
+    const stream = streams[0];
+    expect(stream.url).toBe("/api/events");
+    stream.onopen?.();
+    expect(reconnect).not.toHaveBeenCalled();
+    stream.onopen?.();
+    expect(reconnect).toHaveBeenCalledOnce();
+    stream.dispatchEvent(new MessageEvent("trace", {data: JSON.stringify({type: "trace", uid: "demo", at: "2026-10-17T10:00:00Z", data: {id: "t:0", at: "2026-10-17T10:00:00Z", tool: "explain", args: {}, query_name: "explain", ms: 1.5, rows: 4, outcome: "path"}})}));
+    expect(receive).toHaveBeenCalledWith(expect.objectContaining({kind: "trace", data: expect.objectContaining({query_name: "explain", rows: 4})}));
+    close();
+    expect(stream.close).toHaveBeenCalledOnce();
+  });
+});

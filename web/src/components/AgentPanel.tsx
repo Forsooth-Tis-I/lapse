@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Camera, Database, Terminal } from "lucide-react";
 import type { AgentScreen, ExecStep, GraphStats, ToolCallRecord } from "../api";
 
@@ -6,12 +7,20 @@ export function AgentPanel({
   screen,
   stats,
   execution,
+  selectedTool,
+  selectedRecord,
 }: {
   trace: ToolCallRecord[];
+  selectedTool?: string | null;
+  selectedRecord?: ToolCallRecord;
   screen: AgentScreen | null;
   stats: GraphStats | null;
   execution: ExecStep | null;
 }) {
+  const selectedRow = useRef<HTMLTableRowElement>(null);
+  const selectedId = selectedRecord?.id ?? [...trace].reverse().find((row) => row.tool === selectedTool)?.id;
+  useEffect(() => { selectedRow.current?.scrollIntoView({block: "nearest"}); }, [selectedId]);
+  const rows = selectedRecord && !trace.some((row) => row.id === selectedRecord.id) ? [...trace, selectedRecord] : trace;
   return (
     <section className="page-section">
       <div className="section-heading">
@@ -28,62 +37,6 @@ export function AgentPanel({
           Live activity
         </span>
       </div>
-      <div className="agent-top">
-        <section className="agent-screen">
-          <div className="panel-title">
-            <span>
-              <Camera size={16} /> Agent screen
-            </span>
-            <span className="mono">
-              {screen?.mock ? "SIMULATED EXECUTOR" : "EXECUTOR"}
-            </span>
-          </div>
-          {screen?.url ? (
-            <img
-              src={screen.url}
-              alt={screen.caption || "Latest executor screenshot"}
-            />
-          ) : (
-            <div className="screen-empty">
-              <Camera size={32} />
-              <h3>Waiting for an approved step</h3>
-              <p>The latest browser screenshot will appear here.</p>
-            </div>
-          )}
-          <div className="screen-caption">
-            <span className="dot" />
-            {execution?.message ||
-              screen?.caption ||
-              "No actions have been approved."}
-          </div>
-        </section>
-        <section className="graph-stats">
-          <Database size={24} />
-          <span className="eyebrow">GRAPH AT A GLANCE</span>
-          <h2>Connected evidence.</h2>
-          <div className="stats-pair">
-            <div>
-              <strong>{stats?.nodes ?? "—"}</strong>
-              <span>nodes</span>
-            </div>
-            <div>
-              <strong>{stats?.edges ?? "—"}</strong>
-              <span>edges</span>
-            </div>
-          </div>
-          <div className="query-latency">
-            <span>Last query</span>
-            <strong>
-              {trace.at(-1)?.ms ?? stats?.last_query_ms ?? "—"}{" "}
-              <small>ms</small>
-            </strong>
-          </div>
-          <p>
-            Named Cypher queries. Recorded timings. Every result can be traced
-            to the graph.
-          </p>
-        </section>
-      </div>
       <section className="trace-panel">
         <div className="panel-title">
           <span>
@@ -97,15 +50,15 @@ export function AgentPanel({
               <tr>
                 <th>Time</th>
                 <th>Tool / arguments</th>
-                <th>Cypher query</th>
+                <th>Cypher query name</th>
                 <th>ms</th>
                 <th>Rows</th>
                 <th>Outcome</th>
               </tr>
             </thead>
             <tbody>
-              {[...trace].reverse().map((row) => (
-                <tr key={row.id}>
+              {[...rows].reverse().map((row) => (
+                <tr key={row.id} id={`trace-${row.id}`} ref={row.id === selectedId ? selectedRow : undefined} className={row.id === selectedId ? "selected-trace" : ""}>
                   <td className="mono">
                     {new Date(row.at).toLocaleTimeString("en-GB")}
                   </td>
@@ -134,6 +87,62 @@ export function AgentPanel({
           )}
         </div>
       </section>
+      <div className="agent-top">
+        <section className="agent-screen">
+          <div className="panel-title">
+            <span>
+              <Camera size={16} /> Agent screen
+            </span>
+            <span className="mono">
+              {screen?.mock ? "SIMULATED EXECUTOR" : "EXECUTOR"}
+            </span>
+          </div>
+          {screen?.url ? (
+            <img
+              src={screen.url}
+              alt={screen.caption || "Latest executor screenshot"}
+            />
+          ) : (
+            <div className="screen-empty">
+              <Camera size={32} />
+              <h3>No executor screenshot yet</h3>
+              <p>The latest browser screenshot will appear here.</p>
+            </div>
+          )}
+          <div className="screen-caption">
+            <span className="dot" />
+            {execution?.message ||
+              screen?.caption ||
+              "No actions have been approved."}
+          </div>
+        </section>
+        <section className="graph-stats">
+          <Database size={24} />
+          <span className="eyebrow">GRAPH AT A GLANCE</span>
+          <h2>Connected evidence.</h2>
+          <div className="stats-pair">
+            <div>
+              <strong>{stats?.nodes ?? "—"}</strong>
+              <span>nodes</span>
+            </div>
+            <div>
+              <strong>{stats?.edges ?? "—"}</strong>
+              <span>edges</span>
+            </div>
+          </div>
+          <div className="query-latency">
+            <span>Last query</span>
+            <strong>
+              {(trace.at(-1)?.ms ?? stats?.last_query_ms)?.toFixed(1) ?? "—"}{" "}
+              <small>ms</small>
+            </strong>
+          </div>
+          <p>
+            Named Cypher queries. Recorded timings. Every result can be traced
+            to the graph.
+          </p>
+        </section>
+      </div>
     </section>
   );
 }

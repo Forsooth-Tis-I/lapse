@@ -1,0 +1,24 @@
+{
+  "at": "2026-10-17T14:44:34.695Z",
+  "base": "http://localhost:5174",
+  "api": "http://localhost:8020",
+  "viewport": "1920x1080",
+  "errors": [],
+  "screenshots": [
+    "graph-direct",
+    "graph-full",
+    "explanation-evidence",
+    "unknown-splitwise",
+    "graph-college",
+    "graph-both",
+    "plans",
+    "plans-approved",
+    "chat-working",
+    "chat",
+    "agent-trace",
+    "connections",
+    "connections-saved",
+    "graph-light-reduced-motion",
+    "connections-mobile"
+  ]
+}

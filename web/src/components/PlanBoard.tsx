@@ -6,14 +6,14 @@ import {
   KeyRound,
   ShieldCheck,
 } from "lucide-react";
-import { api } from "../api";
-import type { Change, Plan } from "../api";
+import { api, changeSchema, planSchema } from "../api";
+import type { Change, Plan, Root } from "../api";
 
 const tiers = {
   1: "Automatic",
   2: "Browser + your code",
   3: "You do it",
-  4: "In person",
+  4: "Manual",
 };
 const statusLabel = {
   proposed: "Needs approval",
@@ -26,17 +26,28 @@ const statusLabel = {
   skipped: "Skipped",
 };
 
+function AdditionalDetails({value, known}: {value: Record<string, unknown>; known: object}) {
+  const fields = Object.entries(value).filter(([key, item]) => !(key in known) && item != null);
+  if (!fields.length) return null;
+  return <details className="additional-details"><summary>Additional planner details</summary>
+    <dl>{fields.map(([key, item]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{typeof item === "object" ? JSON.stringify(item) : String(item)}</dd></div>)}</dl>
+  </details>;
+}
+
 function ChangeCard({
   step,
   exposure,
   onChange,
+  approvingAll,
 }: {
+  approvingAll: boolean;
   step: Change;
   exposure: number;
   onChange: (step: Change) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [code, setCode] = useState("");
   async function approve() {
     setBusy(true);
@@ -57,6 +68,7 @@ function ChangeCard({
     setError("");
     try {
       onChange(await api.submitOtp(step.id, submitted));
+      setSubmitted(true);
     } catch {
       setError("The code could not be submitted. Please try again.");
     } finally {
@@ -105,28 +117,28 @@ function ChangeCard({
         {step.status === "awaiting_otp" && (
           <form className="otp-form" onSubmit={submitCode}>
             <label htmlFor={`otp-${step.id}`}>
-              <KeyRound size={14} /> Enter the code sent to your new number
+              <KeyRound size={14} /> Enter the verification code requested by the executor
             </label>
             <div className="flex gap-2">
               <input
                 id={`otp-${step.id}`}
                 aria-label={`Code for ${step.account_label}`}
                 type="password"
-                inputMode="numeric"
                 autoComplete="one-time-code"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 required
-                minLength={4}
-                maxLength={12}
+                minLength={1}
+                maxLength={128}
               />
               <button
                 className="primary-button"
-                disabled={busy || code.length < 4}
+                disabled={busy || code.length === 0}
               >
                 Submit code
               </button>
             </div>
+            {submitted && <p role="status">Code submitted. Waiting for the executor to verify it.</p>}
             <small>Used once. Never saved or shown in the trace.</small>
           </form>
         )}
@@ -140,6 +152,7 @@ function ChangeCard({
             Open account settings <ArrowUpRight size={15} />
           </a>
         )}
+        <AdditionalDetails value={step} known={changeSchema.shape} />
         {error && (
           <p role="alert" className="error-text">
             {error}
@@ -150,10 +163,10 @@ function ChangeCard({
         <span className={`status-pill ${step.status}`}>
           {statusLabel[step.status]}
         </span>
-        {step.status === "proposed" && (
+        {(step.status === "proposed" || step.status === "failed") && (
           <button
             className="secondary-button"
-            disabled={busy}
+            disabled={busy || approvingAll}
             onClick={approve}
           >
             {busy
@@ -173,12 +186,17 @@ export function PlanBoard({
   onChange,
   onCreate,
   creating,
+  roots = [],
+  onCreateRoot,
 }: {
   plans: Plan[];
+  roots?: Root[];
+  onCreateRoot?: (rootId: string) => void;
   onChange: (step: Change) => void;
   onCreate: () => void;
   creating: boolean;
 }) {
+  const [rootId, setRootId] = useState("");
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState("");
   const steps = plans.flatMap((plan) => plan.steps);
@@ -219,6 +237,13 @@ export function PlanBoard({
           </button>
         )}
       </div>
+      {onCreateRoot && <form className="root-plan-form" onSubmit={(event) => { event.preventDefault(); if (rootId) onCreateRoot(rootId); }}>
+        <label>Plan from a root<select aria-label="Root to retire" required value={rootId} onChange={(event) => setRootId(event.target.value)}>
+          <option value="">Choose a phone, email, or device</option>
+          {roots.map((root) => <option key={root.id} value={root.id}>{root.label} · {root.status}</option>)}
+        </select></label>
+        <button className="secondary-button" disabled={creating || !rootId}>{creating ? "Building plan…" : "Plan this root"}</button>
+      </form>}
       {error && (
         <div className="error-banner" role="alert">
           {error}
@@ -228,7 +253,7 @@ export function PlanBoard({
         <div className="empty-panel">
           <ShieldCheck size={34} />
           <h2>A smaller risk, one change at a time.</h2>
-          <p>Build an ordered plan for the old number and college email.</p>
+          <p>Build an ordered plan for the selected scenario, or choose a root above.</p>
           <button
             className="primary-button"
             disabled={creating}
@@ -242,9 +267,7 @@ export function PlanBoard({
           <section className="plan-group" key={plan.id}>
             <div className="plan-heading">
               <h2>
-                {plan.kind === "takeover"
-                  ? "Retire your old number"
-                  : "Before the college mailbox closes"}
+                {roots.find((root) => root.id === plan.old_root)?.label ?? plan.old_root}
               </h2>
               <span>
                 {plan.steps.filter((s) => s.status === "done").length}/
@@ -252,6 +275,7 @@ export function PlanBoard({
                 {plan.exposure_after} affected
               </span>
             </div>
+            <AdditionalDetails value={plan} known={planSchema.shape} />
             {!plan.feasible && (
               <p className="warning-note">
                 This plan needs your attention. Some changes may no longer be
@@ -264,6 +288,7 @@ export function PlanBoard({
                 <ChangeCard
                   key={step.id}
                   step={step}
+                  approvingAll={approving}
                   exposure={plan.exposure_before}
                   onChange={onChange}
                 />
@@ -273,7 +298,7 @@ export function PlanBoard({
       )}
       <p className="footnote">
         Approval permits the listed action. A change is complete only after
-        verification. In-person steps are always separate.
+        verification. Manual T4 steps are always separate.
       </p>
     </section>
   );

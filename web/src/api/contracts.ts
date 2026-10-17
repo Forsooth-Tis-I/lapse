@@ -116,7 +116,7 @@ export const explanationSchema = z.object({
   outcome: z.enum(["path", "not_affected", "not_in_graph"]),
   steps: z.array(pathStepSchema).default([]),
 });
-export const changeSchema = z.object({
+export const changeSchema = z.looseObject({
   id: z.string(),
   plan_id: z.string(),
   order: z.number().int(),
@@ -151,7 +151,7 @@ export const changeSchema = z.object({
   settings_url: optionalText,
   note: optionalText,
 });
-export const planSchema = z.object({
+export const planSchema = z.looseObject({
   id: z.string(),
   kind: scenarioKindSchema,
   old_root: z.string(),
@@ -283,9 +283,34 @@ export const onboardingRequestSchema = z.object({
       carrier: z.string(),
       status: z.enum(["retiring", "active"]),
       drop_at: date.optional(),
+      id: z.string().min(1).optional(),
+      country: z.string().optional(),
     }),
   ),
+  display_name: z.string().optional(),
+  emails: z.array(z.object({
+    id: z.string().min(1), address: z.string().min(1),
+    kind: z.enum(["personal", "edu", "work", "custom"]).optional(),
+    hosted_by: z.string().optional(),
+    status: z.enum(["active", "closing", "closed"]).optional(),
+    closes_at: date.optional(),
+  })).optional(),
+  devices: z.array(z.object({
+    id: z.string().min(1), name: z.string().min(1),
+    kind: z.enum(["phone", "laptop", "key"]),
+    status: z.enum(["active", "sold", "lost"]).optional(),
+  })).optional(),
 });
+export const chatButtonSchema = z.discriminatedUnion("action", [
+  z.object({label: z.string(), action: z.literal("open_web"), payload: z.object({path: z.string()})}),
+  z.object({label: z.string(), action: z.literal("plan_root"), payload: z.object({root_id: z.string()})}),
+  z.object({label: z.string(), action: z.literal("approve_changes"), payload: z.object({change_ids: z.array(z.string()), approval_token: z.string().optional()})}),
+]);
+export const chatReplySchema = z.object({
+  text: z.string(), buttons: z.array(chatButtonSchema), tool_calls: z.array(z.string()),
+});
+export type ChatReply = z.infer<typeof chatReplySchema>;
+export type ChatButton = z.infer<typeof chatButtonSchema>;
 export const onboardingResultSchema = z.object({
   telegram_code: z.string(),
   telegram_url: z.string(),
@@ -358,6 +383,8 @@ export interface LapseApi {
   explain(scenarioId: string, accountId: string): Promise<Explanation>;
   createPlan(input: PlanRequest): Promise<Plan>;
   getPlan(id: string): Promise<Plan>;
+  getPlans(): Promise<Plan[]>;
+  chat(text: string): Promise<ChatReply>;
   approveChange(id: string): Promise<Change>;
   submitOtp(id: string, code: string): Promise<Change>;
   getTrace(since?: string): Promise<ToolCallRecord[]>;
@@ -368,5 +395,6 @@ export interface LapseApi {
   subscribe(
     onEvent: (event: UiEvent) => void,
     onError?: (error: Error) => void,
+    onReconnect?: () => void,
   ): () => void;
 }

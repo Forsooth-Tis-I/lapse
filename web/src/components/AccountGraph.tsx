@@ -13,12 +13,12 @@ const graphStyle: StylesheetJson = [
     selector: "node",
     style: {
       shape: "round-rectangle",
-      width: 170,
+      width: 190,
       height: 44,
       label: "data(label)",
       color: "#dddeda",
       "font-family": "DM Sans",
-      "font-size": 14,
+      "font-size": 16,
       "font-weight": 500,
       "text-valign": "center",
       "text-halign": "center",
@@ -26,7 +26,7 @@ const graphStyle: StylesheetJson = [
       "border-color": "#58665c",
       "border-width": 1.2,
       "text-wrap": "wrap",
-      "text-max-width": "128px",
+      "text-max-width": "165px",
       "overlay-opacity": 0,
     },
   },
@@ -142,6 +142,19 @@ const graphStyle: StylesheetJson = [
   },
 ];
 
+export function displayReach(graph: GraphData, results: ScenarioResult[]) {
+  const reached = results.flatMap((result) => result.affected_accounts.map((item) => ({...item, kind: result.kind})));
+  for (const node of graph.nodes) {
+    if (!node.root?.hosted_by_service || reached.some((item) => item.node_id === node.id)) continue;
+    const host = graph.nodes.find((item) => item.account?.service_id === node.root?.hosted_by_service);
+    const source = reached.find((item) => item.node_id === host?.id && item.kind === "takeover");
+    if (source && graph.edges.some((edge) => edge.source === source.node_id && edge.target === node.id)) {
+      reached.push({...source, node_id: node.id, label: node.label, node_type: "Root", round: source.round + 1});
+    }
+  }
+  return reached;
+}
+
 export function AccountGraph({
   graph,
   results,
@@ -167,9 +180,8 @@ export function AccountGraph({
   const [round, setRound] = useState(1);
   const maxRound = Math.max(1, ...results.map((result) => result.rounds));
   const scenarioKey = results.map((result) => result.id).join(":");
-  const reachedIds = results.flatMap((result) =>
-    result.affected_accounts.map((item) => item.node_id),
-  );
+  const displayReached = displayReach(graph, results);
+  const reachedIds = displayReached.map((item) => item.node_id);
   const rootIds = results.flatMap((result) => result.root_ids);
   const relevantIds = new Set([
     ...reachedIds,
@@ -259,11 +271,7 @@ export function AccountGraph({
     cy.layout(layout).run();
     const reached = new Map([
       ...fixedRounds,
-      ...results.flatMap((result) =>
-        result.affected_accounts.map(
-          (item) => [item.node_id, item.round] as const,
-        ),
-      ),
+      ...displayReached.map((item) => [item.node_id, item.round] as const),
     ]);
     const columns = new Map<number, string[]>();
     for (const node of graph.nodes.filter((item) => relevantIds.has(item.id))) {
@@ -321,11 +329,7 @@ export function AccountGraph({
     const cy = instance.current;
     if (!cy) return;
     const reached = new Map(
-      results.flatMap((result) =>
-        result.affected_accounts.map(
-          (item) => [item.node_id, { ...item, kind: result.kind }] as const,
-        ),
-      ),
+      displayReached.map((item) => [item.node_id, item] as const),
     );
     const direct = new Set(results.flatMap((result) => result.direct_accounts));
     const seeds = new Set(results.flatMap((result) => result.root_ids));

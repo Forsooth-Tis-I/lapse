@@ -110,17 +110,13 @@ export function ExplanationPanel({
                   : "Not affected in this scenario"}
           </span>
           <h2>{node.label}</h2>
-          {loading ? (
+          {unknown ? (
+            <p><strong>Not in the graph of modelled methods.</strong> We found this account, but its recovery methods are not modelled. Confirm its settings yourself. Unknown, not safe.</p>
+          ) : loading ? (
             <p role="status">Reading the derivation…</p>
           ) : error ? (
             <p className="error-text" role="alert">
               {error}
-            </p>
-          ) : unknown ? (
-            <p>
-              We found this account, but its recovery methods are not modelled.
-              Confirm its settings yourself. An absent path does not mean it is
-              safe.
             </p>
           ) : explanation?.outcome === "path" ? (
             <>

@@ -1,56 +1,50 @@
 # Lapse web
 
-WP6: the account map, ordered fix plan, agent trace/screen, and connections flow. React + TypeScript + Vite, Tailwind, Cytoscape with dagre ordering. Fonts ship locally. Dark appearance is the default; the sidebar switches to light.
+The live account map, fix plans, chat, agent trace, executor screen, and connections form. React, TypeScript, Vite, and Cytoscape. Fonts ship locally.
 
-## Run
+## Run against the API
 
-Use Node 22.12+ and npm. From the repository root:
+From the repository root, load the shared demo fixture once and start the API:
+
+```sh
+uv sync
+make fixture
+LAPSE_UID=demo uv run uvicorn lapse.api.main:app --port 8020
+```
+
+In another terminal:
 
 ```sh
 cd web
 npm ci
-npm run dev
+VITE_USE_MOCK=false VITE_API_URL=http://localhost:8020 npm run dev
 ```
 
-Open http://localhost:5173. The dev server uses port 5173 with `strictPort`; it fails rather than silently switching ports. Mock mode is on by default and resets on browser reload.
+Open http://localhost:5173. If that port belongs to another worktree, append `-- --port 5174`. The API permits both local origins. Never open `.env`; application code loads its configuration.
+
+For nginx or another same-origin proxy, leave `VITE_API_URL` unset or set it to `/api`. REST, SSE, and executor image paths then use the relative API base. Offline development remains available with `VITE_USE_MOCK=true npm run dev`.
+
+## Verify
 
 ```sh
 npm run typecheck
 npm test
 npm run build
+npx playwright install chromium
+WEB_URL=http://localhost:5174 API_URL=http://localhost:8020 node scripts/verify-live.mjs
 ```
 
-To use the parallel backend without creating a secrets file:
+The headless check uses the real demo API, creates plans, approves pending T1–T3 steps, sends a chat question, saves fixture persona metadata, and captures every page at 1920×1080. It does not connect an inbox. Use only the demo workspace. `make fixture` replaces the shared demo graph; coordinate its use with other workers.
 
-```sh
-VITE_USE_MOCK=false VITE_API_URL=http://localhost:8000 npm run dev
-```
-
-The API must allow CORS from http://localhost:5173. All HTTP/SSE paths, request bodies, response parsing, and demo transport live in `src/api/`. See [the complete API handoff](src/api/README.md) for every endpoint and transport shape awaiting backend agreement.
-
-## Structure
-
-- `src/api/contracts.ts`: Zod schemas and inferred TypeScript models mirroring `lapse/contracts.py`.
-- `src/api/index.ts`: REST/SSE boundary and environment selection.
-- `src/api/fixtures.ts`, `mock.ts`: in-memory demo persona and simulated events.
-- `src/App.tsx`: navigation, scenario selection, live state, counts, deadlines.
-- `src/components/`: graph, explanation/evidence panel, plan board, agent panel, onboarding.
-- `src/styles.css`: responsive layout, themes, and reduced-motion styles.
-- `src/**/*.test.tsx`, `src/api/api.test.ts`: behavior and contract checks.
-- `docs/screenshots/`: browser captures; `docs/verification.md`: verification record and replay recipe.
+`node scripts/verify-execution.mjs` separately stages a labelled `awaiting_otp` change, checks OTP relay and live SSE, then restores the original change. It does not run an executor. See [verification and remaining gaps](docs/verification.md).
 
 ## Demo sequence
 
-1. Account map starts at Direct only: five accounts use the old number. Switch to Full chain to reveal Google, its Gmail mailbox, and five more accounts by derivation round.
-2. Inspect Dropbox to show both email and SMS prerequisites. Scroll its details to see evidence headers. Inspect GitHub for its missing authenticator factor; Splitwise is explicitly unknown, not safe.
-3. Select College email closes: four accounts lose fresh sign-in access while Google retains another route. Both overlays independent takeover and lockout results, because the shared request permits only one scenario kind.
-4. Open Fix plan, build it, and approve a step or all T1–T3. Google pauses for an OTP; any six digits simulate success. T1 college-email replacements complete automatically. T3 opens settings and simulates confirmation after six seconds. T4 remains pending. Verified fixes update graph edges and scenario counts.
-5. Agent activity shows named query traces, timings, rows, and a clearly labelled simulated executor image. Connections accepts fictional IMAP/phone details, clears the password on submission, and streams discovery progress plus a placeholder Telegram code.
+1. Compare Direct only and Full chain. The current fixture returns 5 direct and 10 full-chain accounts. The mailbox bridge appears in round 2.
+2. Inspect Dropbox for both prerequisites and the evidence subject, sender, and date. Inspect Splitwise for unknown methods.
+3. Switch College email closes and Both. Counts always come from the backend. The current compiled policy returns zero college lockouts because other sign-in methods remain; the earlier offline mock returns four.
+4. Plan from the selected scenario or a root. Approve one step or all T1–T3. The API queues execution; completion requires the worker and evidence.
+5. Ask chat `show risk for 4321`. Follow its buttons and tool links to the query trace. The agent panel places tool, Cypher name, milliseconds, and rows above the executor screen and stats.
+6. Save phones and persona in Connections, or supply write-only inbox credentials to queue discovery.
 
-The explicit requested fixture yields **10 affected accounts plus the Gmail Root**, not 12 accounts. Counts come from scenario results. GitHub is only a blocked graph example; it is not the T1 executor persona. Moving a college account to Gmail while Gmail remains exposed does not make it safe. The mock preserves that risk until the hub is fixed.
-
-## Backend work still needed
-
-Real inbox ingestion and evidence, graph computations and explanations, persisted plans/approvals, OTP relay, executor screenshots and verification, named-query traces, stats, Telegram linking, and SSE must replace the mock. Mock service tiers and deadlines are illustrative, not verified policy. The college-closure story is staged. The frontend does not infer real-world safety from mock data.
-
-The graph focuses on the selected scenario and includes blocked prerequisites. The account selector remains available for all discovered accounts. Unknown services are never green. Reduced motion reveals the final cascade immediately and retains opacity feedback without movement.
+The claim applies **under the methods we model**. Unknown services are **unknown, not safe**. The college-closure scenario is staged. See [the API boundary](src/api/README.md) for transport details.

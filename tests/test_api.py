@@ -173,7 +173,7 @@ def api(monkeypatch, tmp_path):
         call("load_persona_local", uid, yaml.safe_load(main.Path(path).read_text()))
         return {"roots": 1}
 
-    def respond(uid, text, *, channel="telegram"):
+    async def respond(uid, text, *, channel="telegram"):
         call("respond", uid, text, channel=channel)
         return {"text": "I can explain your plan.", "buttons": [], "tool_calls": []}
 

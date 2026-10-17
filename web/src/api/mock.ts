@@ -427,6 +427,8 @@ export function createMockApi(): LapseApi {
       );
       return clone(plan);
     },
+    getPlans: async () => clone([...plans.values()]),
+    chat: async () => ({ text: "Offline demo. Explore the account map or build a fix plan. Live chat requires the API.", buttons: [{label: "Open account map", action: "open_web", payload: {path: "/graph"}}], tool_calls: [] }),
     getPlan: async (id) => clone(requirePlan(id)),
     approveChange: async (id) => {
       const { plan, change } = findChange(id);

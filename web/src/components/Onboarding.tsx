@@ -2,11 +2,12 @@ import { useState } from "react";
 import {
   ArrowUpRight,
   Check,
+  ChevronDown,
   Inbox,
   LockKeyhole,
   Smartphone,
 } from "lucide-react";
-import { api, isMock } from "../api";
+import { api, isMock, onboardingRequestSchema } from "../api";
 import type { IngestProgress } from "../api";
 
 export function Onboarding({
@@ -17,6 +18,7 @@ export function Onboarding({
   onConnected: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [emailCount, setEmailCount] = useState(1);
   const [error, setError] = useState("");
   const [link, setLink] = useState<{
     telegram_code: string;
@@ -27,45 +29,77 @@ export function Onboarding({
     const form = event.currentTarget;
     const fields = new FormData(form);
     const value = (name: string) => String(fields.get(name) || "");
+    const inbox = {
+      host: value("host").trim(),
+      username: value("username").trim(),
+      app_password: value("password"),
+    };
+    const hasInbox = Object.values(inbox).some(Boolean);
     const payload = {
-      inboxes: [
-        {
-          host: value("host"),
-          username: value("username"),
-          app_password: value("password"),
-        },
-      ],
+      display_name: value("display_name").trim() || "Lapse user",
+      inboxes: hasInbox ? [inbox] : [],
       phones: [
         {
-          number: value("old_number"),
-          carrier: value("old_carrier"),
-          status: "retiring" as const,
-          drop_at: value("drop_at"),
+          number: value("old_number").trim(),
+          carrier: value("old_carrier").trim(),
+          status: "retiring",
+          drop_at: value("drop_at") || undefined,
         },
         {
-          number: value("new_number"),
-          carrier: value("new_carrier"),
-          status: "active" as const,
+          number: value("new_number").trim(),
+          carrier: value("new_carrier").trim(),
+          status: "active",
         },
-      ],
+      ].filter((phone) => phone.number),
+      emails: Array.from({ length: emailCount }, (_, index) => {
+        const address = value(`email_${index}_address`).trim().toLowerCase();
+        return {
+          id: value(`email_${index}_id`).trim() || `email:${address}`,
+          address,
+          kind: value(`email_${index}_kind`),
+          hosted_by: value(`email_${index}_hosted_by`).trim() || undefined,
+          status: value(`email_${index}_status`),
+          closes_at: value(`email_${index}_closes_at`) || undefined,
+        };
+      }).filter((email) => email.address),
     };
-    const password = form.elements.namedItem("password");
-    if (password instanceof HTMLInputElement) password.value = "";
+    for (const name of ["host", "username", "password"]) {
+      const input = form.elements.namedItem(name);
+      if (input instanceof HTMLInputElement) input.value = "";
+      fields.delete(name);
+    }
     setBusy(true);
     setError("");
+    setLink(null);
+    let saved = false;
     try {
-      setLink(await api.onboard(payload));
-      await api.runIngest();
+      const validated = onboardingRequestSchema.parse(payload);
+      try {
+        setLink(await api.onboard(validated));
+      } finally {
+        for (const credentials of validated.inboxes) {
+          credentials.host = "";
+          credentials.username = "";
+          credentials.app_password = "";
+        }
+      }
+      saved = true;
       onConnected();
+      if (hasInbox) await api.runIngest();
     } catch {
       setError(
-        "Could not connect. Check the details and try again. Your app password has been cleared.",
+        saved
+          ? "Your details were saved, but discovery could not start."
+          : "Could not save. Check your details; an inbox needs its server, email address, and app password. Inbox credentials have been cleared.",
       );
     } finally {
-      payload.inboxes[0].app_password = "";
+      inbox.host = "";
+      inbox.username = "";
+      inbox.app_password = "";
       setBusy(false);
     }
   }
+
   return (
     <section className="page-section onboarding">
       <div className="section-heading">
@@ -92,12 +126,14 @@ export function Onboarding({
               <Inbox size={20} />
               <h2>Connect an inbox</h2>
             </div>
+            <p className="form-help">
+              Optional. Leave these fields blank to save only your persona.
+            </p>
             <div className="field-grid">
               <label className="wide">
                 IMAP server
                 <input
                   name="host"
-                  required
                   placeholder="imap.gmail.com"
                   autoComplete="off"
                 />
@@ -106,10 +142,9 @@ export function Onboarding({
                 Email address
                 <input
                   name="username"
-                  required
                   type="email"
                   placeholder="you@example.com"
-                  autoComplete="username"
+                  autoComplete="off"
                 />
               </label>
               <label>
@@ -117,7 +152,6 @@ export function Onboarding({
                 <input
                   name="password"
                   type="password"
-                  required
                   autoComplete="new-password"
                   placeholder="Your inbox app password"
                 />
@@ -125,8 +159,8 @@ export function Onboarding({
             </div>
             <p className="form-help">
               <LockKeyhole size={13} />
-              Sent only when you connect. Never returned in a response or saved
-              by this browser.
+              Sent only when you connect. Never returned in a response or stored
+              by this app in your browser.
             </p>
           </div>
           <div className="form-section">
@@ -140,20 +174,18 @@ export function Onboarding({
                 <input
                   name="old_number"
                   type="tel"
-                  required
                   placeholder="+91 … 4321"
                 />
               </label>
               <label>
                 Old carrier
-                <input name="old_carrier" required defaultValue="Vi" />
+                <input name="old_carrier" defaultValue="Vi" />
               </label>
               <label className="wide">
                 When will you give it up?
                 <input
                   name="drop_at"
                   type="date"
-                  required
                   defaultValue="2026-10-31"
                 />
               </label>
@@ -162,16 +194,96 @@ export function Onboarding({
                 <input
                   name="new_number"
                   type="tel"
-                  required
                   placeholder="+91 … 7788"
                 />
               </label>
               <label>
                 New carrier
-                <input name="new_carrier" required defaultValue="Jio" />
+                <input name="new_carrier" defaultValue="Jio" />
               </label>
             </div>
           </div>
+          <details className="form-section">
+            <summary className="form-heading">
+              <ChevronDown size={18} /> Persona and email roots
+            </summary>
+            <div className="field-grid">
+              <label className="wide">
+                Display name
+                <input name="display_name" placeholder="Lapse user" />
+              </label>
+            </div>
+            {Array.from({ length: emailCount }, (_, index) => (
+              <div className="form-section" key={index}>
+                <h2>Email root {index + 1}</h2>
+                <div className="field-grid">
+                  <label className="wide">
+                    Persona email {index + 1}
+                    <input
+                      name={`email_${index}_address`}
+                      type="email"
+                      placeholder="you@college.edu"
+                    />
+                  </label>
+                  <label>
+                    Email kind {index + 1}
+                    <select
+                      name={`email_${index}_kind`}
+                      aria-label={`Email kind ${index + 1}`}
+                      defaultValue="personal"
+                    >
+                      <option value="personal">Personal</option>
+                      <option value="edu">College</option>
+                      <option value="work">Work</option>
+                      <option value="custom">Custom domain</option>
+                    </select>
+                  </label>
+                  <label>
+                    Email status {index + 1}
+                    <select
+                      name={`email_${index}_status`}
+                      aria-label={`Email status ${index + 1}`}
+                      defaultValue="active"
+                    >
+                      <option value="active">Active</option>
+                      <option value="closing">Closing</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </label>
+                  <label>
+                    Hosted by service {index + 1}
+                    <input
+                      name={`email_${index}_hosted_by`}
+                      placeholder="google"
+                    />
+                  </label>
+                  <label>
+                    Closure date {index + 1}
+                    <input name={`email_${index}_closes_at`} type="date" />
+                  </label>
+                  <label className="wide">
+                    Existing root ID {index + 1}, optional
+                    <input
+                      name={`email_${index}_id`}
+                      placeholder="Leave blank for a new email root"
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+            <button
+              className="text-link"
+              type="button"
+              disabled={busy}
+              onClick={() => setEmailCount((count) => count + 1)}
+            >
+              Add another email
+            </button>
+            <p className="form-help">
+              Email kind, hosting service, and closure dates come from you.
+              Inbox order does not define them.
+            </p>
+          </details>
           {error && (
             <p className="error-text" role="alert">
               {error}
