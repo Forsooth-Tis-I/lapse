@@ -234,6 +234,7 @@ def test_fixture_lockout_and_compound(persona):
         "test", ScenarioRequest(kind="lockout", root_ids=["phone_old", "email_college"])
     )
     assert ids(compound) == {
+        "college_workspace",
         "google",
         "x",
         "amazon_in",

@@ -34,6 +34,8 @@ A question mark marks an optional property. Fields on later work-package records
 | `ToolCall` | `id`, `at`, `tool`, `args_json`, `query_name?`, `ms`, `rows`, `outcome`. `args_json` stores the JSON encoding of `ToolCallRecord.args`. |
 | `Turn` | Planned `id`, `at`, `role`, `text`. No shared model yet. |
 
+Account `display` is `<Service> · <identifier>` when an identifier exists, otherwise the service name. Views, plan titles, and explanation paths use this label to distinguish accounts of the same service.
+
 `RootStatus` permits `active`, `retiring`, `inactive`, `closing`, `closed`, `expired`, `sold`, `lost`, and `unknown`. Held statuses are `active`, `retiring`, and `closing`. A phone's `reissue_after` is its `drop_at` plus the carrier's `reissue_after_days`; the fixture's Vi date is 2027-01-29.
 
 `Method.kind` is `login`, `reset`, `recover`, `mailbox`, or the planned domain `mx` method. Foundation emits `source='policy'`. The fixture compiler emits account methods and mailbox methods; it does not implement domain MX methods.
@@ -64,6 +66,8 @@ A question mark marks an optional property. Fields on later work-package records
 | `(Turn)-[:ABOUT]->(Account or Root)` | Entities discussed in a turn. |
 | `(ToolCall)-[:IN]->(Turn)` | The turn that invoked the tool. |
 
+Persona YAML can declare dependencies that emails never reveal in `declared_uses`. Each entry names the `service`, an `account` email root, the dependency `role`, and the target `root`. After each ingest run, `onboarding.apply_declared_uses` matches the discovered service account by that email root's address. It writes the edge with `confirmed=true`, `confidence=1.0`, and `source='declared'`, then recompiles touched accounts. Undiscovered accounts are skipped until a later ingest run. Declarations do not create accounts.
+
 `USES.role` is `login_email`, `recovery_email`, `login_phone`, `recovery_phone`, `sms_2fa`, or `totp_device`. `NEEDS.as` carries the corresponding role for a compiled account method.
 
 ## Policy graph
@@ -92,7 +96,7 @@ Account method IDs are `m:<account_id>:<template_id>`, with a numeric suffix whe
 
 Control is an OR across methods and an AND within each method. A node is controlled when it is a seed, or when at least one eligible granting method has every need controlled. Password methods are eligible for the user, who knows passwords, and never for a stranger. A method with zero needs must require a password. This permits the college host's password-only login without creating an unauthenticated entry point. An unseeded cycle alone cannot grant control.
 
-A takeover scenario seeds the roots acquired by a stranger and gives that actor no passwords. Lockout means fresh sign-in after the user loses the requested roots. Its seeds are held possession roots, phones and devices, excluding those lost. The user knows passwords. Email roots are not implicit seeds: mailbox access must follow from the host account's methods. A closed mailbox disables that route. Compound scenarios use a list of root IDs.
+A takeover scenario seeds the roots acquired by a stranger and gives that actor no passwords. Lockout means fresh sign-in after the user loses the requested roots. Its seeds are held possession roots, phones and devices, excluding those lost. The user knows passwords. Email roots are not implicit seeds: mailbox access must follow from the host account's methods. Loss of an Email root models closure of the whole hosting account: it disables the mailbox method and every method granting its host Account, including password-only login and alternate recovery methods. Compound scenarios use a list of root IDs.
 
 `ENABLES` supports a sound lower bound for password-free reachability. It cannot represent an AND gate and does not replace closure. GitHub's fixture reset requires both `email_primary` and `device_phone`; email alone creates no ENABLES shortcut to GitHub.
 
@@ -104,14 +108,18 @@ Scenario claims are always qualified as "under the methods we model". Accounts w
 
 Each round adds new targets until no target is gained. Methods sort by ID, so competing methods in the same earliest round produce one deterministic derivation. The result retains the target's round, selected method, and every need. An unseeded cycle never starts. The Python loop does not substitute ordinary graph reachability for the database's AND check.
 
-Takeover seeds the acquired roots without passwords. For immediate lockout, compare closures with password knowledge before and after losing the requested roots. Mailbox methods granting a lost Email root are disabled after the loss. For recovery loss, run password-free closures from the possession roots and mailboxes available in each corresponding password-aware closure. This models forgetting an account password while retaining access to other inboxes. A password-only college mailbox therefore remains a recovery channel before closure; an inbox indirectly lost through a missing phone or second factor is unavailable afterward. Each tier reports only the difference between its before and after account sets.
+Takeover seeds the acquired roots without passwords. For immediate lockout, compare closures with password knowledge before and after losing the requested roots. Mailbox methods granting a lost Email root and all methods granting its hosting Account are disabled after the loss. For recovery loss, run password-free closures from the possession roots and mailboxes available in each corresponding password-aware closure. This models forgetting an account password while retaining access to other inboxes. A password-only college mailbox therefore remains a recovery channel before closure; an inbox indirectly lost through a missing phone or second factor is unavailable afterward. Each tier reports only the difference between its before and after account sets.
 
 SEED and REACHED describe the actor's actual closure. DERIVED edges with `basis='reached'` preserve its earliest derivations. Lockout also stores `basis='baseline'` and `basis='recovery_baseline'` derivations. `explain` uses the immediate-loss baseline for `outcome='lost_now'` or the recovery baseline for `outcome='recovery_lost'`, retaining every AND branch. An account in both tiers receives the immediate-loss explanation. Takeover retains `outcome='path'`. Steps run from prerequisites to account, ordered by round. Graph views use actual reached derivations, so a surviving account shows the route it retains. Evidence comes from SUPPORTS and MENTIONS on the path's nodes. Pruning removes all derivation sets with scenarios older than the latest 20.
 
 Planner exposure uses this same evaluator in `GRAPH.COPY` sandboxes, serialized with the Redis lock
 `lapse:lock:graph-copy` and bounded retry for fork conflicts. Phone plans count the union of takeover and lockout;
 email/device plans count the union of both lockout tiers and domain plans count takeover. Both original
-lockout baseline account sets remain fixed across changes. An inactive phone is restored to the before-loss possession baseline. Removing an
+lockout baseline account sets remain fixed across changes.
+
+For an email closure plan, the hosting account cannot migrate and is excluded from fixable exposure and change steps. It stays in `remaining_accounts` with the note "closes with the mailbox: save anything you need from it". Moving every migratable account can therefore reach `exposure_after=0` while the host remains listed.
+
+An inactive phone is restored to the before-loss possession baseline. Removing an
 account's only sign-in method cannot make a plan appear to repair that account. Plans persist both component
 counts, exact remaining account IDs, unknown account IDs, and a note. Each Change groups an account's roles
 on the old root in `roles`, retaining `role` for older consumers and `title` for display. Recompilation uses

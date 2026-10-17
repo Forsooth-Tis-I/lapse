@@ -245,7 +245,9 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
                 "account": {
                     **identity,
                     "service_id": service.id,
-                    "display": service.name,
+                    "display": f"{service.name} · {identity['identifier']}"
+                    if identity["identifier"]
+                    else service.name,
                     "modelled": service.modelled,
                 },
                 "evidence": evidence,

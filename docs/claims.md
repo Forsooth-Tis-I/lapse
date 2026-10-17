@@ -24,17 +24,17 @@ A marker has the form `&lt;!-- claim:takeover_phone_old.full --&gt;value&lt;!-- 
 | `takeover_phone_old.direct` | <!-- claim:takeover_phone_old.direct -->5<!-- /claim --> | Takeover result, direct account IDs. |
 | `takeover_phone_old.full` | <!-- claim:takeover_phone_old.full -->10<!-- /claim --> | Takeover result, affected accounts. |
 | `takeover_phone_old.unknown` | <!-- claim:takeover_phone_old.unknown -->1<!-- /claim --> | Takeover result, unknown accounts. |
-| `lockout_email_college.full` | <!-- claim:lockout_email_college.full -->4<!-- /claim --> | College lockout result, affected accounts. |
-| `lockout_email_college.lost_now` | <!-- claim:lockout_email_college.lost_now -->0<!-- /claim --> | Explicit immediate-loss tier, or legacy fresh-sign-in loss. |
+| `lockout_email_college.full` | <!-- claim:lockout_email_college.full -->5<!-- /claim --> | College lockout result, affected accounts. |
+| `lockout_email_college.lost_now` | <!-- claim:lockout_email_college.lost_now -->1<!-- /claim --> | Explicit immediate-loss tier, or legacy fresh-sign-in loss. |
 | `lockout_email_college.recovery_lost` | <!-- claim:lockout_email_college.recovery_lost -->4<!-- /claim --> | Explicit recovery-loss tier; unavailable on older contracts. |
-| `compound_lockout.full` | <!-- claim:compound_lockout.full -->14<!-- /claim --> | Lockout after losing both `phone_old` and `email_college`. |
-| `compound_lockout.lost_now` | <!-- claim:compound_lockout.lost_now -->5<!-- /claim --> | Compound immediate-loss tier, or legacy fresh-sign-in loss. |
+| `compound_lockout.full` | <!-- claim:compound_lockout.full -->15<!-- /claim --> | Lockout after losing both `phone_old` and `email_college`. |
+| `compound_lockout.lost_now` | <!-- claim:compound_lockout.lost_now -->6<!-- /claim --> | Compound immediate-loss tier, or legacy fresh-sign-in loss. |
 | `compound_lockout.recovery_lost` | <!-- claim:compound_lockout.recovery_lost -->14<!-- /claim --> | Compound recovery-loss tier; unavailable on older contracts. |
 | `plan_phone_old.before` | <!-- claim:plan_phone_old.before -->11<!-- /claim --> | Plan exposure before replacing `phone_old` with `phone_new`. |
 | `plan_phone_old.after` | <!-- claim:plan_phone_old.after -->0<!-- /claim --> | Projected exposure after the complete plan. |
 | `plan_phone_old.steps` | <!-- claim:plan_phone_old.steps -->7<!-- /claim --> | Number of proposed changes, grouped by account. |
 | `closure.ms` | <!-- claim:closure.ms -->0-20<!-- /claim --> ms | Median local closure time and its accepted range. |
-| `queries.count` | <!-- claim:queries.count -->109<!-- /claim --> | Named files under `lapse/graph/queries/`. |
+| `queries.count` | <!-- claim:queries.count -->111<!-- /claim --> | Named files under `lapse/graph/queries/`. |
 | `tools.count` | <!-- claim:tools.count -->12<!-- /claim --> | Registered MCP tools. |
 
 The script also prints `graph.nodes`, `graph.edges`, `graph.accounts`, `graph.roots`, and `graph.methods` from `stats`, before it persists scenarios or a plan. Those totals depend on existing analytical history when using `--uid`; they are not published as stable demo claims. Optional test-count claims are not implemented. Test execution reports are the evidence for suite results.

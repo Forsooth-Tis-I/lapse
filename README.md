@@ -13,8 +13,8 @@ These results come from the fixture loaded into FalkorDB, **under the methods we
 | Scenario | Graph result |
 | --- | --- |
 | A stranger gets the old phone number | <!-- claim:takeover_phone_old.direct -->5<!-- /claim --> accounts directly reachable; <!-- claim:takeover_phone_old.full -->10<!-- /claim --> through the full chain. |
-| The college email closes | <!-- claim:lockout_email_college.lost_now -->0<!-- /claim --> lost outright, even with the password; no way back if the password is forgotten: <!-- claim:lockout_email_college.recovery_lost -->4<!-- /claim -->. |
-| The user loses both the old phone and college email | <!-- claim:compound_lockout.lost_now -->5<!-- /claim --> lost outright, even with the password; no way back if the password is forgotten: <!-- claim:compound_lockout.recovery_lost -->14<!-- /claim -->. |
+| The college email closes | <!-- claim:lockout_email_college.lost_now -->1<!-- /claim --> lost outright, even with the password; no way back if the password is forgotten: <!-- claim:lockout_email_college.recovery_lost -->4<!-- /claim -->. |
+| The user loses both the old phone and college email | <!-- claim:compound_lockout.lost_now -->6<!-- /claim --> lost outright, even with the password; no way back if the password is forgotten: <!-- claim:compound_lockout.recovery_lost -->14<!-- /claim -->. |
 
 The compound row is a user-lockout scenario, not a sum of attacker reach and user loss. An account can retain password sign-in while losing a recovery route. Missing recovery-loss results mean **not reported**, never zero. The old-phone scenario also has <!-- claim:takeover_phone_old.unknown -->1<!-- /claim --> unknown account. Unknown is not safe.
 
@@ -101,7 +101,7 @@ The diagram shows the main relationships. [Full schema, properties, indexes, and
 
 ## The queries
 
-There are <!-- claim:queries.count -->109<!-- /claim --> named `.cypher` files. The table below is generated from `lapse/graph/queries/` and [reviewed descriptions](docs/query-descriptions.json). `schema.cypher` holds index administration outside that count.
+There are <!-- claim:queries.count -->111<!-- /claim --> named `.cypher` files. The table below is generated from `lapse/graph/queries/` and [reviewed descriptions](docs/query-descriptions.json). `schema.cypher` holds index administration outside that count.
 
 Start with [`closure_round.cypher`](lapse/graph/queries/closure_round.cypher). Its `all(x IN needs WHERE x IN $have)` condition is the AND gate. Zero-need methods require password knowledge. Disabled mailbox methods cannot grant access after closure.
 
@@ -161,12 +161,14 @@ For explain-path behavior, [`explain.cypher`](lapse/graph/queries/explain.cypher
 | [ingest_signal](lapse/graph/queries/ingest_signal.cypher) | Merge an ingestion signal and its root link. |
 | [ingest_summary](lapse/graph/queries/ingest_summary.cypher) | Count discovery records, confirmed uses, and unknown services. |
 | [ingest_use](lapse/graph/queries/ingest_use.cypher) | Merge a root role without overwriting newer contact evidence. |
+| [onboarding_declared_use](lapse/graph/queries/onboarding_declared_use.cypher) | Confirm a declared dependency for a discovered account matched by service and login email. |
 | [onboarding_device](lapse/graph/queries/onboarding_device.cypher) | Merge declared device metadata. |
 | [onboarding_email](lapse/graph/queries/onboarding_email.cypher) | Merge declared email metadata while preserving observed closure notices. |
 | [onboarding_phone](lapse/graph/queries/onboarding_phone.cypher) | Merge declared phone metadata. |
 | [onboarding_user](lapse/graph/queries/onboarding_user.cypher) | Merge the user's onboarding metadata. |
 | [planner_candidates](lapse/graph/queries/planner_candidates.cypher) | Group the old root's roles by active account. |
 | [planner_change_evidence](lapse/graph/queries/planner_change_evidence.cypher) | Attach completion evidence to a change and its account. |
+| [planner_closing_accounts](lapse/graph/queries/planner_closing_accounts.cypher) | Find mailbox hosting accounts that close and cannot be migrated. |
 | [planner_drop_use](lapse/graph/queries/planner_drop_use.cypher) | Remove the selected old-root roles in a simulation or completed change. |
 | [planner_get_change](lapse/graph/queries/planner_get_change.cypher) | Read one persisted change. |
 | [planner_get_plan](lapse/graph/queries/planner_get_plan.cypher) | Read a plan with its ordered changes. |
@@ -265,6 +267,7 @@ The local API's tenant header is a selector, not authentication. Screenshot file
 
 ## Honest limits
 
+- Accounts opened with "Sign in with Google" are not modelled yet.
 - Every risk result holds **under the methods we model**. Unknown is not safe, including when projected exposure reaches zero.
 - Public help pages do not reveal every adaptive recovery challenge. Gmail access through a number is a modeled branch, not a guarantee. Missing MFA evidence is not proof that MFA is off.
 - Password knowledge preserves some fresh sign-ins after mailbox loss. Recovery loss is a separate result; older responses do not report it.

@@ -80,9 +80,17 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
     policies = _policies()
     by_service = {policy.service.id: policy for policy in policies}
     plan_id = f"plan:{uuid4().hex}"
+    closing_accounts = {}
+    if root.kind == RootKind.email:
+        closing_accounts = {
+            row["account_id"]: row["account_label"]
+            for row in db.run(g, "planner_closing_accounts", {"root_id": old_root}, trace=trace).rows
+        }
     remaining = []
     unknown_accounts = set()
     for row in db.run(g, "planner_candidates", {"root_id": old_root}, trace=trace).rows:
+        if row["account_id"] in closing_accounts:
+            continue
         policy = by_service.get(row["service_id"])
         procedure = next((p for p in policy.change if p.root_kind == root.kind), None) if policy else None
         unknown = policy is None or not policy.service.modelled or not row["modelled"]
@@ -95,7 +103,7 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
         requires_old_root = bool(procedure and {"old_otp", "email_otp_old"}.intersection(procedure.requires))
         roles = sorted(row["roles"])
         role_labels = {"recovery_phone": "recovery phone", "sms_2fa": "2-Step phone"}
-        label = policy.service.name if policy else row["account_label"]
+        label = row["account_label"]
         title = f"Move {label}'s " + " and ".join(
             role_labels.get(role, role.replace("_", " ")) for role in roles
         )
@@ -135,6 +143,7 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
             recovery_before = recovery_closure(g, held_before, trace=trace)
         baseline = tuple(
             {node.node_id for node in access.reached.values() if node.node_type == "Account"}
+            - closing_accounts.keys()
             for access in (held_before, recovery_before)
         )
     if root.kind in {RootKind.phone, RootKind.domain}:
@@ -185,6 +194,10 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
         finally:
             working.delete()
     notes = ["Exposure counts distinct affected accounts under the methods we model."]
+    notes.extend(
+        f"{label} closes with the mailbox: save anything you need from it."
+        for label in closing_accounts.values()
+    )
     if taken:
         notes.append("Remaining takeover: " + ", ".join(sorted(taken)) + ".")
     if lost:
@@ -208,7 +221,7 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
         takeover_after=len(taken),
         lockout_before=len(lost_before),
         lockout_after=len(lost),
-        remaining_accounts=sorted(taken | lost),
+        remaining_accounts=sorted(taken | lost | closing_accounts.keys()),
         unknown_accounts=sorted(unknown_accounts),
         note=" ".join(notes),
         steps=steps,

@@ -35,6 +35,7 @@ def load_persona(
             Service(id=account.service_id, name=account.display, modelled=False),
         )
         account.modelled = account.modelled and service.modelled
+        account.display = f"{service.name} · {account.identifier}" if account.identifier else service.name
     uses = [Uses.model_validate(use) for use in data["uses"]]
     evidence = [Evidence.model_validate(item["evidence"]) for item in data["evidence"]]
     if any(len(item.snippet) > 300 for item in evidence):

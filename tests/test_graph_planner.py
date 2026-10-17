@@ -403,3 +403,16 @@ def test_closing_host_is_not_migratable_even_with_a_use(planner_graph):
         in plan.note
     )
     assert planner.get_plan("planner-test", plan.id) == plan
+
+
+def test_host_only_closure_has_no_fixable_exposure(planner_graph):
+    planner_graph.query("MATCH (a:Account) WHERE a.id <> 'college_workspace' DETACH DELETE a")
+    plan = planner.plan_for_root("planner-test", "email_college", "email_primary")
+    assert plan.steps == []
+    assert (plan.exposure_before, plan.exposure_after) == (0, 0)
+    assert plan.remaining_accounts == ["college_workspace"]
+    assert (
+        "College Workspace · student@example.edu closes with the mailbox: save anything you need from it"
+        in plan.note
+    )
+    assert planner.get_plan("planner-test", plan.id) == plan

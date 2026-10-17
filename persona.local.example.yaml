@@ -21,7 +21,7 @@ emails:
   - id: email_college
     address: "you.college.stand-in@gmail.com"   # stand-in for a college address
     kind: edu
-    hosted_by: college_workspace
+    hosted_by: google
     status: closing
     closes_at: 2026-11-15                        # staged closure date (see docs/persona-setup.md)
 devices:
