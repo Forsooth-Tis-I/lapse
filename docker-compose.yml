@@ -1,5 +1,24 @@
 # Local stack. FalkorDB is pinned: `latest` currently points at the 4.22 line and may move.
 # Defaults in the image (1 s timeout, 10k row cap, 25 queued queries) are too tight, so they are overridden.
+x-app: &app
+  env_file: .env
+  environment:
+    FALKORDB_HOST: falkordb
+    FALKORDB_PORT: 6379
+  volumes:
+    - ./data:/app/data
+    - ./browser_profiles:/app/browser_profiles
+    - type: bind
+      source: ./persona.local.yaml
+      target: /app/persona.local.yaml
+      read_only: true
+      bind:
+        create_host_path: false
+  depends_on:
+    falkordb:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   falkordb:
     image: falkordb/falkordb:v4.22.1
@@ -17,4 +36,62 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
-  # App services (api, worker, bot, mcp, web) are added in WP10 (deploy). During development run them with `make api` etc.
+  api:
+    <<: *app
+    build:
+      context: .
+      target: api
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2).close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+  worker:
+    <<: *app
+    build:
+      context: .
+      target: worker-browser
+    init: true
+    shm_size: 1gb
+  bot:
+    <<: *app
+    build:
+      context: .
+      target: bot
+  mcp:
+    <<: *app
+    build:
+      context: .
+      target: mcp
+    ports:
+      - "127.0.0.1:8766:8766"
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      FASTMCP_HOST: 0.0.0.0
+      FASTMCP_PORT: 8766
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8766), 2).close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+  web:
+    <<: *app
+    build: ./web
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      falkordb:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate --url http://web:8080
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped

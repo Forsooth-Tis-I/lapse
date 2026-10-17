@@ -411,7 +411,7 @@ async def test_mcp_transport_uses_real_client_session(offline, monkeypatch):
 
     @asynccontextmanager
     async def in_memory_http(url):
-        assert url == "http://127.0.0.1:8765/mcp"
+        assert url == "http://127.0.0.1:8766/mcp"
         async with (
             create_client_server_memory_streams() as (client_streams, server_streams),
             anyio.create_task_group() as group,
@@ -423,7 +423,7 @@ async def test_mcp_transport_uses_real_client_session(offline, monkeypatch):
                 group.cancel_scope.cancel()
 
     monkeypatch.setenv("AGENT_TOOL_TRANSPORT", "mcp")
-    monkeypatch.setenv("MCP_URL", "http://127.0.0.1:8765/mcp")
+    monkeypatch.setenv("MCP_URL", "http://127.0.0.1:8766/mcp")
     monkeypatch.setattr(agent, "streamable_http_client", in_memory_http)
     reply = await agent.respond("alice", "risk of my old number")
     assert reply["tool_calls"] == ["resolve", "takeover_if_reassigned"]
@@ -472,3 +472,20 @@ async def test_turns_persist_with_about_links_and_last_eight_history(world, monk
         except ResponseError as exc:
             if "Invalid graph operation on empty key" not in str(exc):
                 raise
+
+
+@pytest.mark.parametrize(
+    "prompt, expected",
+    [
+        ("what happens if someone gets my old number?", ["resolve", "takeover_if_reassigned"]),
+        ("what do I lose when my college email closes?", ["resolve", "lockout_if_lost"]),
+        ("is dropbox safe?", ["resolve", "account_info"]),
+    ],
+)
+async def test_demo_wording_routes_when_model_is_unavailable(offline, prompt, expected):
+    offline.llm = FakeLLM(RuntimeError("provider unavailable"))
+    reply = await agent.respond("alice", prompt)
+    assert reply["tool_calls"] == expected
+    assert reply["diagnostics"]["fallback_used"] is True
+    assert reply["diagnostics"]["llm_tool_calls"] == []
+    assert reply["diagnostics"]["guard_regenerated"] is False

@@ -177,7 +177,19 @@ def resolve(uid, hint, *, trace=None):
         )
         if matched:
             candidates.append(
-                {"id": root["id"], "label": root["label"], "kind": "root", "root_kind": root["kind"]}
+                {
+                    "id": root["id"],
+                    "label": root["label"],
+                    "kind": "root",
+                    "root_kind": root["kind"],
+                    "replacement_ids": [
+                        other["id"]
+                        for other in roots
+                        if other["id"] != root["id"]
+                        and other["kind"] == root["kind"]
+                        and other["status"] == "active"
+                    ],
+                }
             )
     for row in accounts:
         account, service = row["account"], row.get("service") or {}
@@ -211,20 +223,39 @@ def dependents(uid, root_id, depth="full", *, trace=None):
 
 @register(
     "takeover_if_reassigned",
-    "Model a stranger gaining this root without passwords.",
+    "What happens if someone gets an old number: stranger takeover without passwords. "
+    "Resolve the root first. Returns direct and indirect counts, with mailbox paths.",
     "path",
     ids={"root_id": "Root"},
     root_id=(str, ...),
 )
 def takeover_if_reassigned(uid, root_id, *, trace=None):
-    return graph_call(
-        "scenarios", "run_scenario", uid, ScenarioRequest(kind="takeover", root_ids=[root_id]), trace=trace
+    result = plain(
+        graph_call(
+            "scenarios",
+            "run_scenario",
+            uid,
+            ScenarioRequest(kind="takeover", root_ids=[root_id]),
+            trace=trace,
+        )
     )
+    indirect = {a["node_id"] for a in result.get("affected_accounts", [])} - set(
+        result.get("direct_accounts", [])
+    )
+    if indirect:
+        result["via_accounts"] = db.run(
+            db.user_graph(uid),
+            "wp4_mailbox_paths",
+            {"sid": result["id"], "accounts": sorted(indirect)},
+            trace=trace,
+        ).rows
+    return result
 
 
 @register(
     "lockout_if_lost",
-    "Model fresh sign-in after losing this root.",
+    "What do I lose when an email closes or a SIM is dropped: fresh sign-in lockout. "
+    "Different from takeover; SMS 2FA may block the user even when a stranger cannot sign in.",
     "path",
     ids={"root_id": "Root"},
     root_id=(str, ...),
@@ -264,7 +295,9 @@ def search_evidence(uid, text, *, trace=None):
 
 @register(
     "plan_retirement",
-    "Plan ordered fixes before retiring a root.",
+    "Plan fixes for a retiring root. Resolve old and replacement roots first; use the unique "
+    "replacement_ids candidate when available. Omitting new_root_id means removing the dependency "
+    "and may leave lockout unresolved. Phone exposure combines takeover and lockout.",
     "path",
     ids={"old_root_id": "Root", "new_root_id": "Root"},
     old_root_id=(str, ...),

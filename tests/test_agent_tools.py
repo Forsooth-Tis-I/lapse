@@ -354,3 +354,25 @@ def test_credential_prose_never_reaches_graph_handler(fake_tools):
     assert fake_tools.calls == []
     assert fake_tools.queries == []
     assert "123456" not in json.dumps(fake_tools.traces[-1][2].args)
+
+
+@pytest.mark.db
+def test_real_takeover_returns_proven_mailbox_depth(monkeypatch, isolated_graph):
+    from lapse.config import ROOT_DIR
+    from lapse.policy.loader import load_policy_file
+    from scripts.load_fixture import load_persona
+
+    policies, _ = load_policy_file(ROOT_DIR / "lapse/policy/services.yaml")
+    _, carriers = load_policy_file(ROOT_DIR / "lapse/policy/carriers.yaml")
+    load_persona(isolated_graph, policies, carriers)
+    monkeypatch.setattr(db, "user_graph", lambda uid: isolated_graph)
+    from lapse.graph import scenarios
+
+    monkeypatch.setattr(scenarios, "user_graph", lambda uid: isolated_graph)
+    result = tools.takeover_if_reassigned("test", "phone_old")
+    assert result["direct_accounts"] == ["amazon_in", "google", "swiggy", "x", "zomato"]
+    assert len(result["affected_accounts"]) == 10
+    assert len(result["via_accounts"]) == 1
+    hub = result["via_accounts"][0]
+    assert hub["label"] == "Gmail"
+    assert set(hub["accounts"]) == {"dropbox", "linkedin", "notion", "paypal", "spotify"}

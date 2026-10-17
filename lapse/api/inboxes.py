@@ -9,6 +9,14 @@ from cryptography.fernet import Fernet
 from lapse.api.models import InboxInput
 
 
+def load(uid: str, directory: Path, cipher: Fernet) -> list[InboxInput]:
+    path = directory / "inboxes.enc"
+    if not path.exists():
+        return []
+    records = json.loads(cipher.decrypt(path.read_bytes()))
+    return [InboxInput.model_validate(record) for record in records.get(uid, [])]
+
+
 def store(uid: str, inboxes: list[InboxInput], directory: Path, cipher: Fernet) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "inboxes.enc"

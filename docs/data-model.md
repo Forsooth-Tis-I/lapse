@@ -108,7 +108,14 @@ Takeover seeds the acquired roots without passwords. Lockout compares two closur
 
 SEED and REACHED describe the actor's actual closure. DERIVED edges with `basis='reached'` preserve its earliest derivations. Lockout also stores `basis='baseline'` derivations so an unreachable account still has an explanation. `explain` chooses the baseline for lockout and includes every AND branch, ordered by round from prerequisites to account. Graph views use actual reached derivations, so a surviving account shows the route it retains. Evidence comes from SUPPORTS and MENTIONS on the path's nodes. Pruning removes both derivation sets with scenarios older than the latest 20.
 
-Planner exposure uses this same evaluator in `GRAPH.COPY` sandboxes. For lockout plans, the original baseline account set remains fixed across changes. Removing an account's only sign-in method cannot make a plan appear to repair that account.
+Planner exposure uses this same evaluator in `GRAPH.COPY` sandboxes, serialized with the Redis lock
+`lapse:lock:graph-copy` and bounded retry for fork conflicts. Phone plans count the union of takeover and lockout;
+email/device plans count lockout and domain plans count takeover. The original baseline account set remains
+fixed across changes. An inactive phone is restored to the before-loss possession baseline. Removing an
+account's only sign-in method cannot make a plan appear to repair that account. Plans persist both component
+counts, exact remaining account IDs, unknown account IDs, and a note. Each Change groups an account's roles
+on the old root in `roles`, retaining `role` for older consumers and `title` for display. Recompilation uses
+`compile_user_graph(..., account_ids=[...], trace=...)` and preserves observed methods.
 
 ## Indexes
 

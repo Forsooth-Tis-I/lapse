@@ -24,6 +24,7 @@ def iter_events(
     live: bool = True,
     eml_dir: Path | str | None = None,
     *,
+    uid: str | None = None,
     use_llm: bool = True,
     client: Any = None,
     stats: PrefilterStats | None = None,
@@ -50,7 +51,7 @@ def iter_events(
 
     if live:
         for inbox in inboxes:
-            with fetch_emails(inbox, state_path=state_path) as messages:
+            with fetch_emails(inbox, uid=uid, state_path=state_path) as messages:
                 yield from extractor.extract(kept(messages))
     else:
         directory = Path(eml_dir) if eml_dir is not None else ROOT_DIR / "tests/fixtures/emails"

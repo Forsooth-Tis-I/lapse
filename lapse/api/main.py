@@ -104,7 +104,7 @@ def graph_call(uid: str, module: str, name: str, *args, audit_args=None, **kwarg
             if "trace" in inspect.signature(function).parameters:
                 kwargs["trace"] = trace
             result = function(uid, *args, **kwargs)
-            return asyncio.run(result) if inspect.iscoroutine(result) else result
+            return asyncio.run(result) if inspect.isawaitable(result) else result
     except KeyError as exc:
         raise HTTPException(404, "The requested item does not exist for this user.") from exc
     except ValueError as exc:

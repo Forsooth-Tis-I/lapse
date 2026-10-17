@@ -55,3 +55,19 @@ Chat buttons use `open_web {path}`, `plan_root {root_id}`, or `approve_changes {
 Unknown accounts, such as Splitwise, are identified by `account.modelled=false`; their methods are not in the model. The web shows **unknown, not safe** without treating the explanation endpoint's 404 as a failed path lookup. Root mailbox bridges are displayed at the host account's next round, but never counted as affected accounts.
 
 Onboarding accepts `display_name`, email metadata, optional phone `id` and `country`, and devices in addition to inboxes/phones. The form permits persona-only submission, clears inbox credentials, and queues ingestion only when an inbox was supplied. No inbox credentials are fetched or persisted in browser storage.
+## Additive wave-2 fields
+
+The backend retains existing fields and adds optional display data. Consumers can adopt these without changing
+request shapes. This note does not change the web implementation.
+
+- `Plan`: `takeover_before`, `takeover_after`, `lockout_before`, `lockout_after` are counts; `remaining_accounts`
+  and `unknown_accounts` are string arrays; `note` is nullable text. Old stored plans default component counts
+  to zero because they did not record them. Phone exposure is the union, not the sum, of takeover and lockout.
+  Email/device plans measure lockout; domain plans measure takeover. Zero modelled exposure does not mean an
+  unknown service is safe.
+- `Change`: `roles` is an array of existing role values; `title` is nullable text. One step covers all listed
+  roles for an account and old root. `role` remains available for older clients. `note` carries manual settings
+  instructions or missing-procedure/unknown warnings. An older change without `roles` remains single-role.
+- Chat replies add `diagnostics`: `llm_tool_calls: string[]`, `llm_requests: number`, `fallback_used: boolean`,
+  `guard_regenerated: boolean`, and optional `fallback_reason: string`. The existing `tool_calls` includes
+  fallback calls. Diagnostics contain no provider response bodies or credentials.

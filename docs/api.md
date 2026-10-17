@@ -35,7 +35,7 @@ Redis connection failures return 503.
 | `GET /api/stats` | None | `{nodes: integer, edges: integer, last_query_ms: number}` |
 | `POST /api/onboarding` | Inbox and persona fields below | `{telegram_code, telegram_url}` |
 | `POST /api/ingest/run` | `{}` | `{started: true}` after queuing `ingest_run` |
-| `POST /api/chat` | `{text}`; nonempty string | Agent reply `{text, buttons, tool_calls}` with channel `web` |
+| `POST /api/chat` | `{text}`; nonempty string | Agent reply `{text, buttons, tool_calls, diagnostics}` with channel `web` |
 | `GET /api/events` | None | SSE stream of complete `GraphEvent` envelopes |
 
 `LAPSE_DEMO_MODE=true` rejects approval, OTP, onboarding, ingestion, and chat with HTTP 403 and a friendly
@@ -79,6 +79,27 @@ evidence. `Plan.steps` contains `Change` objects in execution order. A plan has 
 Approval retries can enqueue an already-approved change after a queue failure. Running, waiting, completed, and
 skipped changes are returned unchanged. Queue delivery is at least once.
 
+Phone plans count the union of stranger-reachable accounts and accounts lost by the user after dropping the
+phone. Email and device plans measure lockout; domain plans measure takeover. `kind` remains the primary
+scenario for compatibility. `exposure_before` and `exposure_after` count distinct accounts, so overlapping
+components must not be added. The original lockout baseline stays fixed across all hypothetical changes.
+For an inactive phone, that baseline includes possession of the old phone before it was lost.
+
+Additive plan fields are `takeover_before`, `takeover_after`, `lockout_before`, `lockout_after`,
+`remaining_accounts`, `unknown_accounts`, and `note`. Component counts default to zero when reading older plans
+that did not record them. `note` names any residual exposure; unknown services remain unknown even at zero
+modelled exposure. `Change.roles` groups every role on the account's old root into one step. `role` remains the
+primary role for compatibility, and `title` describes the grouped action. Older stored changes without `roles`
+retain their original single-role scope. Missing procedures produce tier-3 manual steps and a settings/help link
+when known. Unmodelled services produce tier-3 steps marked "unknown, not safe". Policy
+`ChangeProcedure.settings_note` supplies manual instructions through `Change.note`.
+
+Chat diagnostics contain `llm_tool_calls`, `llm_requests`, `fallback_used`, `guard_regenerated`, and optional
+`fallback_reason`. The reason is an exception class, never a provider response body or credential. `tool_calls`
+includes both model and fallback calls. `guard_regenerated` records an attempted single grounding rewrite.
+Chat awaits the agent inside the API trace context. Saying "approve" retrieves the plan and offers a human
+approval button; it does not enqueue execution.
+
 Change statuses are `proposed`, `approved`, `running`, `awaiting_otp`, `awaiting_user`, `done`, `failed`, and `skipped`.
 
 ## Onboarding and inbox storage
@@ -105,8 +126,15 @@ When inboxes are supplied, `LAPSE_SECRET_KEY` must be a valid Fernet key. The en
 `{uid: [{host, username, app_password}]}` is Fernet-encrypted into `data/inboxes.enc`, with file mode 0600.
 Updates preserve other users, use a file lock, and replace the ciphertext atomically. An empty inbox list leaves
 stored credentials unchanged. Credentials never appear in responses or trace arguments.
-Ingest integration must decrypt this documented format; the existing environment-based inbox settings reader is
-owned by the ingest package and is unchanged here.
+Ingestion reads this encrypted store first, scoped to the job's user. It matches the requested Email root's
+address to a stored inbox username, ignoring case and surrounding spaces. No matching stored inbox falls back
+to environment settings. Invalid ciphertext or an invalid key fails explicitly. The job handler is registered
+as `ingest_run` and passes its user ID through pipeline and IMAP settings.
+
+Inbox credentials alone do not create Email roots. For the example above, also provide
+`"emails": [{"id": "email_primary", "address": "demo@example.com", "kind": "personal"}]`, or create that root
+before ingestion. The default job scans `email_primary` and `email_college`; configure roots and credentials
+for both or pass an explicit inbox list to the job. Inbox order does not assign primary or college semantics.
 
 The response uses `https://t.me/<bot>?start=<code>`. `TELEGRAM_BOT_USERNAME` defaults to `LapseAlfredBot`.
 The code is stored in `lapse:tglink:<code>` for one hour. Binding consumes it once and maintains both user-to-chat

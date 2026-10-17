@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any
 
 from falkordb import FalkorDB
@@ -32,6 +32,30 @@ class QueryOutcome:
 def graph(name: str) -> Graph:
     config = settings()
     return FalkorDB(host=config.falkordb_host, port=config.falkordb_port).select_graph(name)
+
+
+def copy_graph(g: Graph, name: str, *, timeout_s: float = 30) -> Graph:
+    deadline = perf_counter() + timeout_s
+    lock = g.client.connection.lock(
+        "lapse:lock:graph-copy", timeout=timeout_s + 60, blocking_timeout=timeout_s, sleep=0.05
+    )
+    if not lock.acquire():
+        raise TimeoutError("Timed out waiting for GRAPH.COPY")
+    try:
+        backoff = 0.05
+        while True:
+            try:
+                return g.copy(name)
+            except ResponseError as exc:
+                if "fork" not in str(exc).lower():
+                    raise
+                remaining = deadline - perf_counter()
+                if remaining <= 0:
+                    raise TimeoutError("Timed out retrying GRAPH.COPY after a fork conflict") from exc
+                sleep(min(backoff, remaining))
+                backoff = min(backoff * 2, 0.5)
+    finally:
+        lock.release()
 
 
 def user_graph(uid: str | None = None) -> Graph:

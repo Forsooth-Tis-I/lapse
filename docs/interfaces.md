@@ -22,12 +22,13 @@ direct_dependents(uid, root_id, *, trace=None) -> list[str]  # account ids; the 
 # planner.py
 plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) -> Plan
     # kind: lockout if old_root is an email being closed or a device being lost; otherwise takeover
-    # (phone being dropped, domain expiring). deadline defaults to drop_at / closes_at / expires_at.
+    # (phone being dropped, domain expiring). Phone exposure includes takeover union lockout.
+    # deadline defaults to drop_at / closes_at / expires_at.
 get_plan(uid, plan_id) -> Plan | None
 list_plans(uid) -> list[Plan]
 update_change(uid, change_id, *, status: ChangeStatus, note=None) -> Change
 apply_change_done(uid, change_id, evidence_id=None, *, trace=None) -> Change
-    # Repoints USES old->new for that account, recompiles that account's methods, marks the change done.
+    # Repoints all listed roles old->new for that account, recompiles its policy methods, marks done.
 
 # views.py
 list_roots(uid) -> list[Root]
@@ -39,7 +40,7 @@ stats(uid) -> dict  # {nodes, edges, by_label, last_query_ms}
 
 ## Policy and compile: `lapse/policy/` (WP0, extended in WP2r2)
 ```python
-compile_user_graph(g, policies, *, account_ids=None)  # honours MethodTemplate.requires_absent_roles
+compile_user_graph(g, policies, account_ids=None, *, trace=None)  # honours MethodTemplate.requires_absent_roles
 ```
 
 ## Events, approvals, jobs, OTP: `lapse/events.py`, `lapse/approvals.py`, `lapse/jobs.py`, `lapse/otp.py` (WP5)

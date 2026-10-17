@@ -56,13 +56,98 @@ class FakeIMAP:
 
 
 @pytest.fixture
-def configured(monkeypatch):
+def configured(monkeypatch, tmp_path):
+    from lapse.ingest import settings
+
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
     for suffix, value in (
         ("HOST", "imap.example.com"),
         ("USER", "demo@example.com"),
         ("PASSWORD", "synthetic"),
     ):
         monkeypatch.setenv(f"PRIMARY_IMAP_{suffix}", value)
+
+
+def test_saved_credentials_are_matched_by_tenant_and_email(tmp_path, monkeypatch, configured):
+    from types import SimpleNamespace
+
+    from cryptography.fernet import Fernet
+
+    from lapse.api.inboxes import store
+    from lapse.api.models import InboxInput
+    from lapse.contracts import Root
+    from lapse.ingest import settings
+
+    key = Fernet.generate_key()
+    cipher = Fernet(key)
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        settings, "app_settings", lambda: SimpleNamespace(secret_key=key.decode(), uid="alice")
+    )
+    store(
+        "alice",
+        [
+            InboxInput(host="imap.other.test", username="other@example.com", app_password="other"),
+            InboxInput(host="imap.saved.test", username="demo@example.com", app_password="saved"),
+        ],
+        tmp_path,
+        cipher,
+    )
+    store(
+        "bob",
+        [InboxInput(host="imap.bob.test", username="demo@example.com", app_password="bob")],
+        tmp_path,
+        cipher,
+    )
+    seen = []
+
+    def roots(uid):
+        seen.append(uid)
+        return [Root(id="email_primary", kind="email", label="Primary", address="demo@example.com")]
+
+    monkeypatch.setattr(settings, "list_roots", roots)
+    alice = settings.inbox_settings("email_primary", uid="alice")
+    assert (alice.host, alice.user, alice.password) == ("imap.saved.test", "demo@example.com", "saved")
+    bob = settings.inbox_settings("email_primary", uid="bob")
+    assert (bob.host, bob.password) == ("imap.bob.test", "bob")
+    missing = settings.inbox_settings("email_primary", uid="missing")
+    assert (missing.host, missing.password) == ("imap.example.com", "synthetic")
+    assert seen == ["alice", "bob"]
+
+
+def test_invalid_saved_credentials_fail_without_using_environment(tmp_path, monkeypatch, configured):
+    from types import SimpleNamespace
+
+    from cryptography.fernet import Fernet
+
+    from lapse.ingest import settings
+
+    (tmp_path / "inboxes.enc").write_bytes(b"invalid ciphertext")
+    monkeypatch.setattr(
+        settings,
+        "app_settings",
+        lambda: SimpleNamespace(secret_key=Fernet.generate_key().decode(), uid="alice"),
+    )
+    with pytest.raises(ValueError, match="Stored inboxes could not be decrypted"):
+        settings.inbox_settings("email_primary", uid="alice")
+
+
+def test_fetch_uses_job_tenant(tmp_path, monkeypatch):
+    from lapse.ingest import imap
+    from lapse.ingest.settings import InboxSettings
+
+    calls = []
+
+    def config(inbox, *, uid):
+        calls.append((inbox, uid))
+        return InboxSettings("imap.example.com", "demo@example.com", "synthetic")
+
+    monkeypatch.setattr(imap, "inbox_settings", config)
+    with fetch_emails(
+        "email_primary", uid="tenant", state_path=tmp_path / "state", client_factory=factory(FakeIMAP())
+    ) as messages:
+        assert len(list(messages)) == 3
+    assert calls == [("email_primary", "tenant")]
 
 
 def factory(client):
