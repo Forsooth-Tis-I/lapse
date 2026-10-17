@@ -187,7 +187,7 @@ def test_email_normalization_matches_compiler_mailbox_lookup(tmp_path, onboardin
         "CREATE (:Account {id: 'google-account', service_id: 'google', "
         "identifier: 'demo@example.com', status: 'active'})"
     )
-    assert db.run(onboarding_graph, "compile_mailboxes").rows == [
+    assert db.run(onboarding_graph, "compile_mailboxes", {"all_accounts": True, "account_ids": []}).rows == [
         {"email_id": "email", "account_id": "google-account"}
     ]
     assert onboarding_graph.ro_query("MATCH (e:Email) RETURN e.address, e.label").result_set == [
@@ -228,3 +228,29 @@ def test_yaml_syntax_traceback_hides_private_values(tmp_path):
     assert "private-demo@example.com" not in diagnostic
     assert "ParserError" not in diagnostic
     assert error.value.__suppress_context__
+
+
+@pytest.mark.parametrize(
+    "section,root,value",
+    [
+        ("phones", {"id": "phone", "e164": "+91XXXXXXXXXX"}, "+91XXXXXXXXXX"),
+        ("phones", {"id": "phone", "e164": "+91xxxxxxxxxx", "last4": "4321"}, "+91xxxxxxxxxx"),
+        ("emails", {"id": "email", "address": "you.demo@gmail.com"}, "you.demo@gmail.com"),
+        (
+            "emails",
+            {"id": "email", "address": " You.College.Stand-In@gmail.com "},
+            "You.College.Stand-In@gmail.com",
+        ),
+    ],
+)
+def test_template_placeholders_fail_before_writing(tmp_path, monkeypatch, section, root, value):
+    import traceback
+
+    path = tmp_path / "persona.yaml"
+    path.write_text(yaml.safe_dump({section: [root]}))
+    monkeypatch.setattr(
+        onboarding.db, "user_graph", lambda uid: pytest.fail("Must validate before graph writes")
+    )
+    with pytest.raises(ValueError, match="still contains placeholder values") as error:
+        onboarding.load_persona_local("fake", path)
+    assert value not in "".join(traceback.format_exception(error.value))
