@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -11,20 +12,22 @@ from lapse.exec.base import ExecContext
 
 @dataclass(frozen=True)
 class Selector:
-    name: str
+    name: str | re.Pattern[str]
     role: str | None = None
     within: str | None = None
-    container_role: str = "row"
+    container_role: str | None = "row"
 
 
 @dataclass(frozen=True)
 class Goto:
     url: str
+    ready: Selector | None = None
 
 
 @dataclass(frozen=True)
 class Click:
     selectors: tuple[Selector, ...]
+    ready: Selector | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class AwaitInboxCode:
     inbox: Literal["old", "new"]
     sender_pattern: str
     subject_pattern: str
+    code_pattern: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,28 +79,41 @@ class SelectorFailure(RuntimeError):
     pass
 
 
-async def _select(page, selectors: tuple[Selector, ...], values: dict[str, str]):
+async def _select(page, selectors: tuple[Selector, ...], values: dict[str, str], *, timeout_ms=10000):
     from playwright.async_api import Error
 
     for selector in selectors:
         parent = page
         if selector.within is not None:
-            parent = page.get_by_role(selector.container_role).filter(
-                has_text=selector.within.format_map(values)
+            within = selector.within.format_map(values)
+            parent = (
+                page.get_by_role(selector.container_role).filter(has_text=within)
+                if selector.container_role
+                else page.get_by_text(within, exact=True).locator("..")
             )
-        name = selector.name.format_map(values)
+        name = selector.name.format_map(values) if isinstance(selector.name, str) else selector.name
         locator = (
             parent.get_by_role(selector.role, name=name, exact=True)
             if selector.role
             else parent.get_by_text(name, exact=True)
         )
         try:
-            await locator.wait_for(state="visible", timeout=2500)
+            await locator.wait_for(state="visible", timeout=timeout_ms)
         except Error:
             continue
         if await locator.count() == 1:
             return locator
     raise SelectorFailure("The expected account control was unavailable or ambiguous")
+
+
+async def navigate(page, step: Goto, allowed_domains: tuple[str, ...]) -> None:
+    from lapse.exec.browser import navigation_allowed
+
+    if not navigation_allowed(step.url, allowed_domains):
+        raise ValueError("Recipe navigation is outside the allowed service")
+    await page.goto(step.url, wait_until="domcontentloaded")
+    if step.ready is not None:
+        await _select(page, (step.ready,), {}, timeout_ms=30000)
 
 
 async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
@@ -119,14 +136,14 @@ async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
             ctx.emitter.emit("progress", f"{ctx.service.name}: step {number} of {len(recipe.steps)}")
             try:
                 match step:
-                    case Goto(url):
-                        if not navigation_allowed(url, recipe.allowed_domains):
-                            raise ValueError("Recipe navigation is outside the allowed service")
-                        await page.goto(url)
-                    case Click(selectors):
+                    case Goto():
+                        await navigate(page, step, recipe.allowed_domains)
+                    case Click(selectors, ready):
                         locator = await _select(page, selectors, values)
                         since = datetime.now(UTC)
                         await locator.click(timeout=5000)
+                        if ready is not None:
+                            await _select(page, (ready,), values)
                     case Fill(selectors, value):
                         locator = await _select(page, selectors, values)
                         if "{code}" in value and "code" not in values:
@@ -134,9 +151,12 @@ async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
                         await locator.fill(value.format_map(values), timeout=5000)
                         if "{code}" in value:
                             values.pop("code", None)
-                    case AwaitInboxCode(inbox, sender_pattern, subject_pattern):
+                    case AwaitInboxCode(inbox, sender_pattern, subject_pattern, code_pattern):
                         root = ctx.old_root if inbox == "old" else ctx.new_root
-                        code = await await_inbox_code(root.id, sender_pattern, subject_pattern, since)
+                        options = {"code_pattern": code_pattern} if code_pattern is not None else {}
+                        code = await await_inbox_code(
+                            root.id, sender_pattern, subject_pattern, since, **options
+                        )
                         if code.startswith("https://"):
                             if not navigation_allowed(code, recipe.allowed_domains):
                                 raise ValueError("Verification link is outside the allowed service")

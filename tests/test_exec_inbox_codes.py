@@ -229,3 +229,42 @@ async def test_reject_invalid_poll_limits(timeout_s, poll_s):
         await inbox_codes.await_inbox_code(
             "email_primary", ".*", ".*", SINCE, timeout_s=timeout_s, poll_s=poll_s
         )
+
+
+@pytest.mark.parametrize("code", ["Ab12Cd", "abcdef", "123456"])
+def test_explicit_code_pattern_extracts_bare_line_before_verification_link(code):
+    payload = mail(f"{code}\n\nConfirm: https://notion.so/verify?token=other")
+    assert inbox_codes.extract_verification(payload, code_pattern=r"(?m)^[A-Za-z0-9]{6}$") == code
+
+
+def test_alphanumeric_codes_do_not_change_default_extraction():
+    assert inbox_codes.extract_verification(mail("Ab12Cd")) is None
+    assert (
+        inbox_codes.extract_verification(mail("Ab12Cd\nhttps://notion.so/verify?token=other"))
+        == "https://notion.so/verify?token=other"
+    )
+
+
+async def test_inbox_poll_forwards_explicit_alphanumeric_pattern(monkeypatch):
+    connect(monkeypatch, [{1: record("Ab12Cd")}])
+    assert (
+        await inbox_codes.await_inbox_code(
+            "email_primary",
+            r"@notion\.so$",
+            "verify",
+            SINCE,
+            code_pattern=r"(?m)^[A-Za-z0-9]{6}$",
+            timeout_s=0.1,
+            poll_s=0.001,
+        )
+        == "Ab12Cd"
+    )
+
+
+def test_notion_code_pattern_accepts_crlf_plain_text():
+    from lapse.exec.recipes.notion_change_email import CODE_PATTERN
+
+    payload = mail("Ab12Cd").replace(b"\n", b"\r\n")
+    assert inbox_codes.extract_verification(payload, code_pattern=CODE_PATTERN) == "Ab12Cd"
+    assert inbox_codes.extract_verification(payload) is None
+    assert inbox_codes.extract_verification(mail("123456").replace(b"\n", b"\r\n")) == "123456"

@@ -1,3 +1,4 @@
+import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,41 +28,70 @@ from lapse.exec.recipes.dsl import (
 
 
 class FakeLocator:
-    def __init__(self, page, name, role=None):
-        self.page, self.name, self.role = page, name, role
+    def __init__(self, page, name, role=None, scope=None):
+        self.page, self.name, self.role, self.scope = page, name, role, scope
+        self.visible_only = False
+
+    def matches(self):
+        if self.role == "dialog" and self.name is None:
+            return [dialog for visible, dialog in self.page.dialogs if visible or not self.visible_only]
+        if self.page.controls is None or self.role is None:
+            return [self.name]
+        return [
+            name
+            for scope, role, name in self.page.controls
+            if role == self.role
+            and (self.scope is None or scope == self.scope)
+            and (self.name.search(name) if isinstance(self.name, re.Pattern) else name == self.name)
+        ]
 
     async def wait_for(self, *, state, timeout):
         self.page.actions.append(("expect", self.name, state))
-        if self.name in self.page.missing:
+        self.page.waits.append((self.name, timeout))
+        if self.name in self.page.missing or (state == "visible" and len(self.matches()) != 1):
             raise Error("selector unavailable")
 
     async def count(self):
-        return 2 if self.name in self.page.ambiguous else 1
+        return 2 if self.name in self.page.ambiguous else len(self.matches())
 
     async def click(self, **kwargs):
-        self.page.actions.append(("click", self.name))
+        self.page.actions.append(("click", self.matches()[0]))
         if self.name in self.page.click_fails:
             raise Error("click rejected")
 
     async def fill(self, value, **kwargs):
         self.page.actions.append(("fill", self.name, value))
+        self.page.fields[(self.scope, self.name)] = value
+
+    @property
+    def last(self):
+        return self.matches()[-1]
 
     def filter(self, **kwargs):
+        if "visible" in kwargs:
+            self.visible_only = kwargs["visible"]
+            return self
         self.page.actions.append(("scope", self.role, kwargs["has_text"]))
         return self
 
     def get_by_role(self, role, *, name, exact):
-        return FakeLocator(self.page, name, role)
+        return FakeLocator(self.page, name, role, self.scope)
 
     def get_by_text(self, text, *, exact=True):
-        return FakeLocator(self.page, text)
+        return FakeLocator(self.page, text, scope=self.scope)
+
+    def locator(self, selector):
+        assert selector == ".."
+        return FakeLocator(self.page, self.name, scope=self.name)
 
 
 class FakePage:
-    def __init__(self, *, missing=(), ambiguous=(), click_fails=()):
+    def __init__(self, *, missing=(), ambiguous=(), click_fails=(), controls=None, dialogs=()):
         self.actions = []
         self.missing, self.ambiguous, self.click_fails = missing, ambiguous, click_fails
         self.masks = []
+        self.dialogs = dialogs
+        self.controls, self.fields, self.waits = controls, {}, []
 
     def get_by_role(self, role, *, name=None, exact=True):
         return FakeLocator(self, name, role)
@@ -72,7 +102,7 @@ class FakePage:
     def locator(self, selector):
         return selector
 
-    async def goto(self, url):
+    async def goto(self, url, **kwargs):
         self.actions.append(("goto", url))
 
     async def screenshot(self, *, path, mask):
@@ -255,7 +285,7 @@ async def test_each_recipe_executes_with_fake_page_and_requires_terminal_state(n
     monkeypatch.setattr(inbox_codes, "await_inbox_code", AsyncMock(return_value="123456"))
     monkeypatch.setitem(sys.modules, "lapse.otp", SimpleNamespace(wait=lambda *a, **k: "654321"))
     page = FakePage()
-    assert candidate.validated is False
+    assert candidate.validated is (candidate.service_id == "notion")
     assert await run_recipe(page, candidate, ctx) is True
     old = ctx.old_root.address or ctx.old_root.e164
     new = ctx.new_root.address or ctx.new_root.e164
@@ -294,3 +324,169 @@ async def test_link_in_code_only_recipe_falls_back_without_filling_empty_code(ct
             ctx,
         )
     assert not any(action[0] == "fill" for action in page.actions)
+
+
+async def test_navigation_waits_for_ready_control_before_screenshot(ctx):
+    page = FakePage()
+    ctx.emitter.screenshot.side_effect = lambda *args: page.actions.append(("screenshot",))
+    await run_recipe(
+        page,
+        recipe(Goto("https://notion.so/settings", ready=Selector("Settings", "button"))),
+        ctx,
+    )
+    assert page.actions == [
+        ("goto", "https://notion.so/settings"),
+        ("expect", "Settings", "visible"),
+        ("screenshot",),
+    ]
+    assert page.waits == [("Settings", 30000)]
+
+
+async def test_navigation_readiness_failure_takes_no_skeleton_screenshot(ctx):
+    page = FakePage(missing={"Settings"})
+    with pytest.raises(SelectorFailure):
+        await run_recipe(
+            page,
+            recipe(Goto("https://notion.so/settings", ready=Selector("Settings", "button"))),
+            ctx,
+        )
+    ctx.emitter.screenshot.assert_not_awaited()
+
+
+@pytest.mark.parametrize("names", [("Settings & members",), ("Settings", "Settings & members")])
+async def test_regex_selectors_act_only_on_unique_match(ctx, names):
+    page = FakePage(controls=[(None, "button", name) for name in names])
+    candidate = recipe(Click((Selector(re.compile(r"^Settings"), "button"),)))
+    if len(names) == 1:
+        await run_recipe(page, candidate, ctx)
+        assert ("click", "Settings & members") in page.actions
+    else:
+        with pytest.raises(SelectorFailure):
+            await run_recipe(page, candidate, ctx)
+        assert not any(action[0] == "click" for action in page.actions)
+    assert page.waits[0][1] == 10000
+
+
+async def test_parent_text_scope_fills_distinct_unlabelled_code_fields(ctx):
+    page = FakePage(controls=[("New email code", "textbox", ""), ("Old email code", "textbox", "")])
+    await run_recipe(
+        page,
+        recipe(
+            Fill((Selector("", "textbox", within="New email code", container_role=None),), "new123"),
+            Fill((Selector("", "textbox", within="Old email code", container_role=None),), "old456"),
+        ),
+        ctx,
+    )
+    assert page.fields == {("New email code", ""): "new123", ("Old email code", ""): "old456"}
+
+
+async def test_dual_inbox_proofs_share_request_time_and_keep_codes_out_of_events(ctx, monkeypatch):
+    calls, messages = [], []
+    pattern = r"(?m)^[A-Za-z0-9]{6}$"
+
+    async def read(inbox, sender, subject, since, *, code_pattern):
+        calls.append((inbox, since, code_pattern))
+        return {"email_primary": "Ab12Cd", "email_college": "Ef34Gh"}[inbox]
+
+    monkeypatch.setattr(inbox_codes, "await_inbox_code", read)
+    ctx.emitter.emit = lambda *args, **kwargs: messages.append((args, kwargs))
+    page = FakePage()
+    await run_recipe(
+        page,
+        recipe(
+            Click((Selector("Send codes", "button"),)),
+            AwaitInboxCode("new", "sender", "subject", code_pattern=pattern),
+            Fill((Selector("New code", "textbox"),), "{code}"),
+            AwaitInboxCode("old", "sender", "subject", code_pattern=pattern),
+            Fill((Selector("Old code", "textbox"),), "{code}"),
+        ),
+        ctx,
+    )
+    assert [call[0] for call in calls] == ["email_primary", "email_college"]
+    assert calls[0][1] == calls[1][1]
+    assert calls[0][1] >= ctx.started_at
+    assert [call[2] for call in calls] == [pattern, pattern]
+    assert page.fields == {(None, "New code"): "Ab12Cd", (None, "Old code"): "Ef34Gh"}
+    for code in ("Ab12Cd", "Ef34Gh"):
+        assert code not in str(messages)
+        assert code not in str(ctx.emitter.screenshot.call_args_list)
+
+
+async def test_screenshot_uses_last_visible_dialog_and_scopes_its_masks(tmp_path):
+    first, selected, hidden = FakePage(), FakePage(), FakePage()
+    page = FakePage(dialogs=[(True, first), (True, selected), (False, hidden)])
+    selected.locator = lambda selector: ("dialog", selector)
+    path = tmp_path / "dialog.png"
+
+    await base.save_screenshot(page, path)
+
+    assert path.read_bytes() == b"fake-png"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert selected.masks[0] == ("dialog", "input, textarea, [contenteditable]")
+    assert selected.masks[1].page is selected
+    assert selected.masks[1].name.search("123456")
+    assert page.masks == first.masks == hidden.masks == []
+
+
+async def test_click_waits_for_destination_before_screenshot(ctx):
+    page = FakePage()
+    ctx.emitter.screenshot.side_effect = lambda *args: page.actions.append(("screenshot",))
+    await run_recipe(
+        page,
+        recipe(Click((Selector("Settings"),), ready=Selector("Search settings", "textbox"))),
+        ctx,
+    )
+    assert page.actions == [
+        ("expect", "Settings", "visible"),
+        ("click", "Settings"),
+        ("expect", "Search settings", "visible"),
+        ("screenshot",),
+    ]
+
+
+async def test_click_readiness_failure_does_not_retry_or_capture_stale_dialog(ctx):
+    page = FakePage(missing={"Search settings"})
+    with pytest.raises(SelectorFailure):
+        await run_recipe(
+            page,
+            recipe(
+                Click(
+                    (Selector("Settings"), Selector("Settings & members")),
+                    ready=Selector("Search settings", "textbox"),
+                )
+            ),
+            ctx,
+        )
+    assert [action for action in page.actions if action[0] == "click"] == [("click", "Settings")]
+    ctx.emitter.screenshot.assert_not_awaited()
+
+
+async def test_notion_recipe_verifies_both_inboxes_then_replaces_old_login(ctx, monkeypatch):
+    from lapse.exec.recipes.notion_change_email import CODE_PATTERN, RECIPE, SENDER, SETTINGS_URL
+
+    read = AsyncMock(side_effect=["Ab12Cd", "Ef34Gh"])
+    monkeypatch.setattr(inbox_codes, "await_inbox_code", read)
+    page = FakePage()
+    assert await run_recipe(page, RECIPE, ctx) is True
+
+    calls = read.await_args_list
+    assert [call.args[0] for call in calls] == ["email_primary", "email_college"]
+    assert calls[0].args[3] == calls[1].args[3]
+    assert calls[0].args[3] >= ctx.started_at
+    assert all(call.args[1] == SENDER for call in calls)
+    assert all(call.kwargs == {"code_pattern": CODE_PATTERN} for call in calls)
+    assert page.fields[("Code sent to new@example.com", "e.g. dqYVcm")] == "Ab12Cd"
+    assert page.fields[("Code sent to old@example.edu", "e.g. dqYVcm")] == "Ef34Gh"
+
+    clicks = [action[1] for action in page.actions if action[0] == "click"]
+    assert clicks.index("Verify email") < clicks.index("Make primary") < clicks.index("Remove")
+    assert clicks.count("Remove") == 1
+    after_remove = page.actions[page.actions.index(("click", "Remove")) + 1 :]
+    assert after_remove[:2] == [
+        ("expect", "old@example.edu", "hidden"),
+        ("goto", SETTINGS_URL),
+    ]
+    assert after_remove[-2:] == [
+        ("expect", "new@example.com", "visible"),
+        ("expect", "old@example.edu", "hidden"),
+    ]

@@ -482,4 +482,4 @@ async def test_assisted_dispatch_uses_recipe_link_when_policy_link_is_absent(exe
     ctx.procedure.settings_url = None
     execution.add(ctx)
     assert (await jobs.handle_execute_change("demo", {"change_id": "change-1"}))["status"] == "awaiting_user"
-    assert execution.notifications[0][2][0]["payload"]["url"] == "https://www.notion.so/settings/account"
+    assert execution.notifications[0][2][0]["payload"]["url"] == "https://www.notion.so/home"

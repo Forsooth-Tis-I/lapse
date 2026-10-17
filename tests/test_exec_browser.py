@@ -160,14 +160,24 @@ async def test_real_chromium_redirect_chain_and_popup_are_blocked(tmp_path, monk
         server_thread.join()
 
 
-async def test_dry_run_only_navigates_and_screenshots(tmp_path, monkeypatch):
+@pytest.mark.parametrize("service", ["notion", "canva", "x"])
+async def test_dry_run_only_navigates_and_screenshots(tmp_path, monkeypatch, service):
     from scripts import exec_dry_run
 
+    ready = SimpleNamespace(wait_for=AsyncMock(), count=AsyncMock(return_value=1))
+    ready.first = ready
+    dialogs = SimpleNamespace(count=AsyncMock(return_value=0))
+    dialogs.filter = lambda **kwargs: dialogs
     page = SimpleNamespace(
-        goto=AsyncMock(), locator=lambda selector: selector, get_by_text=lambda pattern: pattern
+        goto=AsyncMock(),
+        locator=lambda selector: selector,
+        get_by_text=lambda pattern: pattern,
+        get_by_role=lambda role, **kwargs: dialogs if role == "dialog" else ready,
+        wait_for_load_state=AsyncMock(),
     )
 
     async def screenshot(**kwargs):
+        ready.wait_for.assert_awaited_once_with(state="visible", timeout=30000)
         Path(kwargs["path"]).write_bytes(b"png")
 
     page.screenshot = AsyncMock(side_effect=screenshot)
@@ -178,10 +188,10 @@ async def test_dry_run_only_navigates_and_screenshots(tmp_path, monkeypatch):
 
     monkeypatch.setattr(exec_dry_run, "ROOT_DIR", tmp_path)
     monkeypatch.setattr(exec_dry_run, "open_browser", open_browser)
-    await exec_dry_run.dry_run("notion", "demo")
+    await exec_dry_run.dry_run(service, "demo")
     page.goto.assert_awaited_once()
     page.screenshot.assert_awaited_once_with(
-        path=str(tmp_path / "data/screens/demo/dry-run-notion.png"),
+        path=str(tmp_path / f"data/screens/demo/dry-run-{service}.png"),
         mask=["input, textarea, [contenteditable]", re.compile(r"\b\d{6}\b")],
     )
 
@@ -225,6 +235,7 @@ async def test_browser_mode_and_cleanup(tmp_path, monkeypatch, environment, over
             raise RuntimeError("recipe failed")
     assert launch.await_args.kwargs["headless"] is expected_headless
     assert launch.await_args.kwargs["service_workers"] == "block"
+    assert launch.await_args.kwargs["viewport"] == {"width": 1440, "height": 900}
     context.close.assert_awaited_once()
 
 

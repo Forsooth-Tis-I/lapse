@@ -26,6 +26,19 @@ def safe_component(value: str) -> str:
     return value
 
 
+async def save_screenshot(page, path: Path) -> None:
+    dialogs = page.get_by_role("dialog").filter(visible=True)
+    target = dialogs.last if await dialogs.count() else page
+    await target.screenshot(
+        path=str(path),
+        mask=[
+            target.locator("input, textarea, [contenteditable]"),
+            target.get_by_text(re.compile(r"\b\d{6}\b")),
+        ],
+    )
+    path.chmod(0o600)
+
+
 @dataclass
 class StepEmitter:
     uid: str
@@ -92,14 +105,7 @@ class StepEmitter:
         directory = self.screen_dir / uid
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = directory / f"{change}-{self.screen_number}.png"
-        await page.screenshot(
-            path=str(path),
-            mask=[
-                page.locator("input, textarea, [contenteditable]"),
-                page.get_by_text(re.compile(r"\b\d{6}\b")),
-            ],
-        )
-        path.chmod(0o600)
+        await save_screenshot(page, path)
         url = f"/api/screens/{uid}/{path.name}"
         redis_client().set(f"lapse:screen:{self.uid}", json.dumps({"url": url, "caption": caption}))
         self.emit("screenshot", caption, url=url)

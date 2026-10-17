@@ -45,7 +45,7 @@ class _HTMLVerification(HTMLParser):
                 self.links[self.anchor][1] += data
 
 
-def extract_verification(payload: bytes) -> str | None:
+def extract_verification(payload: bytes, *, code_pattern: str | None = None) -> str | None:
     """Extract a code or HTTPS verification link without storing message content."""
     message = BytesParser(policy=policy.default).parsebytes(payload)
     texts = [str(message.get("Subject", ""))]
@@ -66,8 +66,9 @@ def extract_verification(payload: bytes) -> str | None:
             links.extend((url, label) for url, label in parser.links)
         else:
             texts.append(body)
-    text = " ".join(texts)
-    code = _CODE.search(_URL.sub("", text))
+    text = "\n".join(texts)
+    pattern = re.compile(code_pattern) if code_pattern is not None else _CODE
+    code = pattern.search(_URL.sub("", text))
     if code:
         return code.group()
     links.extend((url.rstrip(".,);]"), "") for url in _URL.findall(text))
@@ -86,7 +87,14 @@ def extract_verification(payload: bytes) -> str | None:
     return None
 
 
-def _scan(inbox: str, sender: re.Pattern, subject: re.Pattern, since: datetime, timeout_s: float):
+def _scan(
+    inbox: str,
+    sender: re.Pattern,
+    subject: re.Pattern,
+    since: datetime,
+    timeout_s: float,
+    code_pattern: str | None = None,
+):
     config = inbox_settings(inbox)
     with IMAPClient(config.host, ssl=True, timeout=min(timeout_s, 30)) as client:
         client.login(config.user, config.password)
@@ -114,7 +122,7 @@ def _scan(inbox: str, sender: re.Pattern, subject: re.Pattern, since: datetime, 
                 continue
             if not subject.search(str(message.get("Subject", ""))):
                 continue
-            result = extract_verification(payload)
+            result = extract_verification(payload, code_pattern=code_pattern)
             if result:
                 return result
     return None
@@ -128,6 +136,7 @@ async def await_inbox_code(
     *,
     timeout_s: float = 120,
     poll_s: float = 2,
+    code_pattern: str | None = None,
 ) -> str:
     """Wait for verification mail, including the request's whole second.
 
@@ -143,7 +152,9 @@ async def await_inbox_code(
     try:
         async with asyncio.timeout(timeout_s):
             while True:
-                result = await asyncio.to_thread(_scan, inbox, sender, subject, since, timeout_s)
+                result = await asyncio.to_thread(
+                    _scan, inbox, sender, subject, since, timeout_s, code_pattern
+                )
                 if result:
                     return result
                 await asyncio.sleep(poll_s)

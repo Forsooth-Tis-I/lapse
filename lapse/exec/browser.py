@@ -178,6 +178,7 @@ async def open_browser(
             headless=not headed,
             service_workers="block",
             accept_downloads=False,
+            viewport={"width": 1440, "height": 900},
             args=["--disable-save-password-bubble"],
         )
         try:
