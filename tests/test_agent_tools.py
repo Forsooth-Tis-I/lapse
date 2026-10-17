@@ -50,6 +50,7 @@ def fake_tools(monkeypatch):
         authorized=["change-1"],
         consume_error=None,
         explanation_outcome="path",
+        plans=[],
     )
     entities = {
         "Root": {root.id: {"entity": root.model_dump()} for root in state.roots},
@@ -115,6 +116,10 @@ def fake_tools(monkeypatch):
         state.calls.append(("get_plan", uid, plan_id))
         return {"id": plan_id, "steps": []}
 
+    def list_plans(uid):
+        state.calls.append(("list_plans", uid))
+        return state.plans
+
     def consume(uid, token):
         state.calls.append(("consume", uid, token))
         if state.consume_error:
@@ -143,6 +148,7 @@ def fake_tools(monkeypatch):
         "lapse.graph.planner": {
             "plan_for_root": plan_for_root,
             "get_plan": get_plan,
+            "list_plans": list_plans,
             "update_change": update_change,
         },
         "lapse.approvals": {"consume": consume},
@@ -156,6 +162,105 @@ def fake_tools(monkeypatch):
     monkeypatch.setattr(db, "user_graph", lambda uid: f"fake:{uid}")
     monkeypatch.setattr(db, "run", query)
     return state
+
+
+@pytest.mark.parametrize("uid", ["alice", "bob"])
+def test_list_entities_returns_compact_current_user_catalog(fake_tools, uid):
+    fake_tools.roots.append(
+        Root(id="laptop", label="Laptop", kind="device", device_kind="laptop", confirmed=False)
+    )
+    fake_tools.accounts[0]["account"].update(identifier="private@example.com", evidence=["evidence-1"])
+    assert tools.dispatch(uid, "list_entities", {}) == {
+        "roots": [
+            {
+                "id": "phone-old",
+                "label": "••4321 (Vi)",
+                "kind": "phone",
+                "status": "retiring",
+                "replacement_ids": ["phone-new"],
+            },
+            {
+                "id": "phone-new",
+                "label": "••7788 (Jio)",
+                "kind": "phone",
+                "status": "active",
+                "replacement_ids": [],
+            },
+            {
+                "id": "email-college",
+                "label": "student@college.example",
+                "kind": "email",
+                "status": "closing",
+                "email_kind": "edu",
+                "replacement_ids": [],
+            },
+            {
+                "id": "laptop",
+                "label": "Laptop",
+                "kind": "device",
+                "status": "active",
+                "device_kind": "laptop",
+                "replacement_ids": [],
+            },
+        ],
+        "accounts": [
+            {"id": "dropbox-personal", "label": "Personal Dropbox", "modelled": True, "service": "Dropbox"},
+            {"id": "dropbox-work", "label": "Work Dropbox", "modelled": True, "service": "Dropbox"},
+        ],
+    }
+    assert fake_tools.calls == [("list_roots", uid)]
+    assert fake_tools.queries == [(f"fake:{uid}", "wp4_accounts", None)]
+    assert fake_tools.traces[-1][2].outcome == "memory"
+
+
+@pytest.mark.parametrize("unmodelled", ["account", "service"])
+def test_list_entities_marks_unmodelled_accounts_unknown(fake_tools, unmodelled):
+    fake_tools.accounts[0][unmodelled]["modelled"] = False
+    result = tools.dispatch("alice", "list_entities", {})
+    assert result["accounts"][0] == {
+        "id": "dropbox-personal",
+        "label": "Personal Dropbox",
+        "modelled": False,
+        "service": "Dropbox",
+    }
+
+
+def test_list_entities_preserves_ambiguous_replacements_and_missing_service(fake_tools):
+    fake_tools.roots.append(Root(id="phone-other", kind="phone", label="Other phone"))
+    fake_tools.accounts[0]["service"] = None
+    result = tools.dispatch("alice", "list_entities", {})
+    assert result["roots"][0]["replacement_ids"] == ["phone-new", "phone-other"]
+    assert result["roots"][1]["replacement_ids"] == ["phone-other"]
+    assert result["accounts"][0] == {
+        "id": "dropbox-personal",
+        "label": "Personal Dropbox",
+        "modelled": True,
+    }
+
+
+@pytest.mark.parametrize("plans", [[], [{"id": "done-plan", "steps": [{"status": "verified"}]}]])
+def test_plan_status_without_id_reports_no_proposed_steps(fake_tools, plans):
+    fake_tools.plans = plans
+    assert tools.dispatch("alice", "plan_status", {}) == {
+        "outcome": "memory",
+        "message": "No stored plan has proposed steps. No changes were executed.",
+    }
+    assert fake_tools.calls == [("list_plans", "alice")]
+    assert fake_tools.queries == []
+
+
+def test_plan_status_without_id_returns_latest_proposed_plan_even_if_manual_only(fake_tools):
+    fake_tools.plans = [
+        {"id": "done-plan", "steps": [{"status": "verified", "tier": "T1"}]},
+        {"id": "latest-plan", "steps": [{"status": "proposed", "tier": "T4"}]},
+        {"id": "older-plan", "steps": [{"status": "proposed", "tier": "T1"}]},
+    ]
+    assert tools.dispatch("alice", "plan_status", {}) == {
+        "id": "latest-plan",
+        "steps": [{"status": "proposed", "tier": "T4"}],
+    }
+    assert fake_tools.calls == [("list_plans", "alice")]
+    assert fake_tools.queries == []
 
 
 @pytest.mark.parametrize(

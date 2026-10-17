@@ -142,13 +142,43 @@ def list_roots(uid, *, trace=None):
     return graph_call("views", "list_roots", uid, trace=trace)
 
 
+@register("list_entities", "List known root and account IDs, labels, and type cues for tool selection.")
+def list_entities(uid, *, trace=None):
+    roots = plain(list_roots(uid, trace=trace))
+    catalog_roots = []
+    for root in roots:
+        item = {key: root[key] for key in ("id", "label", "kind", "status")}
+        for key in ("email_kind", "device_kind"):
+            if root.get(key) is not None:
+                item[key] = root[key]
+        item["replacement_ids"] = [
+            other["id"]
+            for other in roots
+            if other["id"] != root["id"] and other["kind"] == root["kind"] and other["status"] == "active"
+        ]
+        catalog_roots.append(item)
+    accounts = []
+    for row in db.run(db.user_graph(uid), "wp4_accounts", trace=trace).rows:
+        account, service = row["account"], row.get("service") or {}
+        item = {
+            "id": account["id"],
+            "label": account["display"],
+            "modelled": account.get("modelled") is not False and service.get("modelled") is not False,
+        }
+        if service.get("name"):
+            item["service"] = service["name"]
+        accounts.append(item)
+    return {"roots": catalog_roots, "accounts": accounts}
+
+
 def normalize(text):
     return " ".join(re.findall(r"\w+", text.casefold()))
 
 
 @register(
     "resolve",
-    "Resolve a phrase to root or account IDs. Ask the user when there are multiple candidates.",
+    "Resolve an ambiguous phrase to root or account IDs. Known IDs can be used directly. "
+    "Ask the user when there are multiple candidates.",
     hint=(str, Field(min_length=1, max_length=500)),
 )
 def resolve(uid, hint, *, trace=None):
@@ -224,7 +254,7 @@ def dependents(uid, root_id, depth="full", *, trace=None):
 @register(
     "takeover_if_reassigned",
     "What happens if someone gets an old number: stranger takeover without passwords. "
-    "Resolve the root first. Returns direct and indirect counts, with mailbox paths.",
+    "Use a known root ID or resolve an ambiguous phrase. Returns direct and indirect counts, with mailbox paths.",
     "path",
     ids={"root_id": "Root"},
     root_id=(str, ...),
@@ -295,7 +325,7 @@ def search_evidence(uid, text, *, trace=None):
 
 @register(
     "plan_retirement",
-    "Plan fixes for a retiring root. Resolve old and replacement roots first; use the unique "
+    "Plan fixes for a retiring root. Use known root IDs or resolve ambiguous phrases; use the unique "
     "replacement_ids candidate when available. Omitting new_root_id means removing the dependency "
     "and may leave lockout unresolved. Phone exposure combines takeover and lockout.",
     "path",
@@ -318,12 +348,17 @@ def plan_retirement(uid, old_root_id, new_root_id=None, deadline=None, *, trace=
 
 @register(
     "plan_status",
-    "Read a stored plan and its current change statuses.",
+    "Read a stored plan and its current change statuses. Omit plan_id for the latest plan with proposed steps.",
     ids={"plan_id": "Plan"},
-    plan_id=(str, ...),
+    plan_id=(str | None, None),
 )
-def plan_status(uid, plan_id, *, trace=None):
-    return graph_call("planner", "get_plan", uid, plan_id, trace=trace)
+def plan_status(uid, plan_id=None, *, trace=None):
+    if plan_id is not None:
+        return graph_call("planner", "get_plan", uid, plan_id, trace=trace)
+    for plan in plain(graph_call("planner", "list_plans", uid, trace=trace)):
+        if any(step["status"] == "proposed" for step in plan["steps"]):
+            return plan
+    return failure("memory", "No stored plan has proposed steps. No changes were executed.")
 
 
 @register(

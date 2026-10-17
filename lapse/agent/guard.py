@@ -172,3 +172,20 @@ def templated(results: list) -> str:
                 "Choose a root to explain its risk under the methods we model."
             )
     return "Choose a known root to show risk or plan the fix under the methods we model. Unknown means unknown, not safe."
+
+
+def approval_summary(plan: dict) -> str:
+    if isinstance(plan, dict) and plan.get("outcome") == "memory":
+        return f"{plan['message']} Plan the fix first under the methods we model."
+    if not isinstance(plan, dict) or "steps" not in plan:
+        return templated([plan])
+    steps = [step for step in plan["steps"] if step["tier"] <= 3 and step["status"] == "proposed"]
+    if not steps:
+        return "No proposed T1–T3 steps remain under the methods we model. Review the plan in web."
+    summary = "; ".join(
+        f"{step.get('title') or step['account_label']} (T{step['tier']})" for step in steps
+    )
+    return (
+        f"Under the methods we model, proposed T1–T3 steps: {summary}. "
+        "Press Approve all T1–T3 to approve these steps. Nothing has been approved by this message."
+    )
