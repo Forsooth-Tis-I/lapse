@@ -68,6 +68,16 @@ def test_fanout_twenty_tenants_changes_only_sms_non_subscribers(tenants):
     assert again["tenants_changed"] == 0
     assert len(notifications) == len(expected)
 
+    from lapse.policy.compile import compile_user_graph
+    from lapse.policy.loader import default_policy_paths, load_policy_file
+
+    original = [policy for path in default_policy_paths() for policy in load_policy_file(path)[0]]
+    for uid in (uids[0], uids[4]):
+        g = db.user_graph(uid)
+        before = db.run(g, "view_methods", {"account_id": "x"}).rows
+        compile_user_graph(g, original, account_ids=["x"])
+        assert db.run(g, "view_methods", {"account_id": "x"}).rows == before
+
 
 @pytest.mark.db
 def test_dry_run_leaves_tenants_and_policy_untouched(tenants):

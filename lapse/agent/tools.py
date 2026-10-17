@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 from redis.exceptions import RedisError
 
 from lapse import trace as tracing
-from lapse.contracts import ScenarioRequest
+from lapse.contracts import ChangeStatus, ScenarioRequest
 from lapse.graph import db
 
 
@@ -213,7 +213,7 @@ def resolve(uid, hint, *, trace=None):
     "path",
     ids={"root_id": "Root"},
     root_id=(str, ...),
-    depth=(Literal[1, "full"], "full"),
+    depth=(Literal[1] | Literal["full"], "full"),  # noqa: PYI030 - provider requires typed enum branches.
 )
 def dependents(uid, root_id, depth="full", *, trace=None):
     if depth == 1:
@@ -254,8 +254,8 @@ def takeover_if_reassigned(uid, root_id, *, trace=None):
 
 @register(
     "lockout_if_lost",
-    "What do I lose when an email closes or a SIM is dropped: fresh sign-in lockout. "
-    "Different from takeover; SMS 2FA may block the user even when a stranger cannot sign in.",
+    "What do I lose when an email closes or a SIM is dropped: immediate sign-in loss and password-free recovery loss. "
+    "Use for the user losing access, not for a stranger getting a number. SMS 2FA may block the user even when a stranger cannot sign in.",
     "path",
     ids={"root_id": "Root"},
     root_id=(str, ...),
@@ -340,4 +340,8 @@ def execute_change(uid, change_id, approval_token, *, trace=None):
     authorized = approvals.consume(uid, approval_token)
     if change_id not in authorized:
         return failure("error", "Approval does not authorize this change.")
+    change = entity(uid, change_id, "Change", trace)["entity"]
+    if change["status"] not in (ChangeStatus.proposed, ChangeStatus.failed, ChangeStatus.approved):
+        return {"change_id": change_id, "status": change["status"]}
+    graph_call("planner", "update_change", uid, change_id, status=ChangeStatus.approved, trace=trace)
     return {"job_id": jobs.enqueue(uid, "execute_change", {"change_id": change_id}), "change_id": change_id}

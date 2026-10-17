@@ -59,7 +59,7 @@ def fake_tools(monkeypatch):
         },
         "Scenario": {"scenario-1": {"entity": {"id": "scenario-1"}}},
         "Plan": {"plan-1": {"entity": {"id": "plan-1"}}},
-        "Change": {"change-1": {"entity": {"id": "change-1"}}},
+        "Change": {"change-1": {"entity": {"id": "change-1", "status": "proposed"}}},
     }
     state.entities = entities
 
@@ -125,6 +125,10 @@ def fake_tools(monkeypatch):
         state.calls.append(("enqueue", uid, kind, payload))
         return "job-1"
 
+    def update_change(uid, change_id, *, status, trace=None):
+        state.calls.append(("update_change", uid, change_id, status.value))
+        entities["Change"][change_id]["entity"]["status"] = status.value
+
     modules = {
         "lapse.graph.views": {
             "list_roots": list_roots,
@@ -136,7 +140,11 @@ def fake_tools(monkeypatch):
             "direct_dependents": direct_dependents,
             "explain": explain,
         },
-        "lapse.graph.planner": {"plan_for_root": plan_for_root, "get_plan": get_plan},
+        "lapse.graph.planner": {
+            "plan_for_root": plan_for_root,
+            "get_plan": get_plan,
+            "update_change": update_change,
+        },
         "lapse.approvals": {"consume": consume},
         "lapse.jobs": {"enqueue": enqueue},
     }
@@ -272,17 +280,30 @@ def test_planner_arguments_and_explanation_order(fake_tools):
     assert fake_tools.traces[-1][2].outcome == "memory"
 
 
-def test_approved_change_consumes_token_then_enqueues(fake_tools):
+@pytest.mark.parametrize("status", ["proposed", "failed", "approved"])
+def test_approved_change_consumes_token_then_enqueues(fake_tools, status):
+    fake_tools.entities["Change"]["change-1"]["entity"]["status"] = status
     result = tools.dispatch(
         "alice", "execute_change", {"change_id": "change-1", "approval_token": "approved"}
     )
     assert result == {"job_id": "job-1", "change_id": "change-1"}
     assert fake_tools.calls == [
         ("consume", "alice", "approved"),
+        ("update_change", "alice", "change-1", "approved"),
         ("enqueue", "alice", "execute_change", {"change_id": "change-1"}),
     ]
     assert fake_tools.traces[-1][2].outcome == "ok"
     assert fake_tools.traces[-1][2].args["approval_token"] == "[redacted]"
+
+
+@pytest.mark.parametrize("status", ["running", "awaiting_otp", "awaiting_user", "done", "skipped"])
+def test_approval_does_not_reexecute_started_or_finished_change(fake_tools, status):
+    fake_tools.entities["Change"]["change-1"]["entity"]["status"] = status
+    result = tools.dispatch(
+        "alice", "execute_change", {"change_id": "change-1", "approval_token": "approved"}
+    )
+    assert result == {"change_id": "change-1", "status": status}
+    assert fake_tools.calls == [("consume", "alice", "approved")]
 
 
 @pytest.mark.parametrize("reason", ["wrong_member", "expired"])

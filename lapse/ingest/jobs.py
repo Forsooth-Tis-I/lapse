@@ -17,9 +17,11 @@ def handle_ingest_run(uid: str, payload: dict) -> dict:
     persona_path = Path(payload.get("persona_path", ROOT_DIR / "persona.local.yaml"))
     if persona_path.is_file():
         load_persona_local(uid, persona_path)
+    extraction_stats = {}
     events = iter_events(
         payload.get("inboxes", ["email_primary", "email_college"]),
         uid=uid,
+        extraction_stats=extraction_stats,
         live=payload.get("live", not bool(payload.get("eml_dir"))),
         eml_dir=payload.get("eml_dir"),
         use_llm=not payload.get("no_llm", False),
@@ -29,4 +31,6 @@ def handle_ingest_run(uid: str, payload: dict) -> dict:
             write_events(uid, [event])
     finally:
         events.close()
-    return write_events(uid, [])
+    counts = write_events(uid, [])
+    counts["llm"] = extraction_stats
+    return counts

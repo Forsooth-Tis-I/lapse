@@ -22,6 +22,13 @@ def main() -> None:
             "tests/fixtures/persona.test.yaml" if args.eml_dir else "persona.local.yaml"
         )
     counts = handle_ingest_run(args.uid, vars(args))
+    llm_stats = counts.get("llm", {})
+    print(
+        f"LLM batches: {llm_stats.get('batches_succeeded', 0)}/"
+        f"{llm_stats.get('batches_attempted', 0)} succeeded; "
+        f"JSON parsed: {llm_stats.get('json_parsed', 0)}; "
+        f"model fallback: {llm_stats.get('model_fallback_used', False)}"
+    )
     print(f"Accounts: {counts['accounts']}")
     print(
         f"USES: {counts['uses']} (confirmed: {counts['confirmed_uses']}, inferred: {counts['inferred_uses']})"

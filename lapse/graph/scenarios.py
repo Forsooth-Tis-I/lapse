@@ -32,6 +32,13 @@ class ScenarioEvaluation:
     closure: ClosureResult
     baseline: ClosureResult | None
     seeds: list[str]
+    recovery: ClosureResult | None = None
+    recovery_baseline: ClosureResult | None = None
+
+
+def recovery_closure(g: Graph, access: ClosureResult, *, disabled=None, trace=None) -> ClosureResult:
+    roots = [node.node_id for node in access.reached.values() if node.node_type == "Root"]
+    return closure(g, roots, pw=False, disabled=disabled, trace=trace)
 
 
 def evaluate_scenario(g: Graph, req: ScenarioRequest, *, trace=None) -> ScenarioEvaluation:
@@ -44,7 +51,8 @@ def evaluate_scenario(g: Graph, req: ScenarioRequest, *, trace=None) -> Scenario
     if not requested or any(root_id not in roots for root_id in requested):
         raise ValueError("unknown_root")
     accounts = db.run(g, "scenario_accounts", trace=trace).rows
-    baseline = None
+    baseline = recovery = recovery_baseline = None
+    lost_now, recovery_lost = [], []
     if req.kind == ScenarioKind.takeover:
         seeds = requested
         reached = closure(g, seeds, pw=False, trace=trace)
@@ -68,11 +76,19 @@ def evaluate_scenario(g: Graph, req: ScenarioRequest, *, trace=None) -> Scenario
             ).rows
         ]
         reached = closure(g, seeds, pw=True, disabled=disabled, trace=trace)
-        affected = [
+        lost_now = [
             node
             for node in baseline.reached.values()
             if node.node_type == "Account" and node.node_id not in reached.reached
         ]
+        recovery_baseline = recovery_closure(g, baseline, trace=trace)
+        recovery = recovery_closure(g, reached, disabled=disabled, trace=trace)
+        recovery_lost = [
+            node
+            for node in recovery_baseline.reached.values()
+            if node.node_type == "Account" and node.node_id not in recovery.reached
+        ]
+        affected = list({node.node_id: node for node in [*recovery_lost, *lost_now]}.values())
         affected_ids = {node.node_id for node in affected}
         direct = [
             row["account"]["id"]
@@ -96,11 +112,13 @@ def evaluate_scenario(g: Graph, req: ScenarioRequest, *, trace=None) -> Scenario
         rounds=reached.rounds,
         affected_accounts=sorted(affected, key=lambda node: (node.round, node.node_id)),
         direct_accounts=sorted(direct),
+        lost_now_accounts=sorted(lost_now, key=lambda node: (node.round, node.node_id)),
+        recovery_lost_accounts=sorted(recovery_lost, key=lambda node: (node.round, node.node_id)),
         unknown_accounts=sorted(unknown),
         total_accounts=len(accounts),
         ms=(perf_counter() - start) * 1000,
     )
-    return ScenarioEvaluation(result, reached, baseline, seeds)
+    return ScenarioEvaluation(result, reached, baseline, seeds, recovery, recovery_baseline)
 
 
 def run_scenario(uid, req: ScenarioRequest, *, trace=None) -> ScenarioResult:
@@ -139,6 +157,8 @@ def run_scenario(uid, req: ScenarioRequest, *, trace=None) -> ScenarioResult:
     derivations = [("reached", evaluation.closure)]
     if evaluation.baseline is not None:
         derivations.append(("baseline", evaluation.baseline))
+    if evaluation.recovery_baseline is not None:
+        derivations.append(("recovery_baseline", evaluation.recovery_baseline))
     for basis, derivation in derivations:
         edges = [
             {
@@ -197,9 +217,18 @@ def explain(uid, scenario_id, account_id, *, trace=None) -> Explanation:
         raise ValueError("unknown_scenario")
     if account_id not in {node.node_id for node in result.affected_accounts}:
         return Explanation(scenario_id=scenario_id, account_id=account_id, outcome="not_affected")
+    outcome = "path"
+    basis = "reached"
+    if result.kind == ScenarioKind.lockout:
+        outcome, basis = "lost_now", "baseline"
+        if account_id not in {node.node_id for node in result.lost_now_accounts} and account_id in {
+            node.node_id for node in result.recovery_lost_accounts
+        }:
+            outcome, basis = "recovery_lost", "recovery_baseline"
     by_target = defaultdict(list)
     for row in db.run(g, "explain", {"sid": scenario_id}, trace=trace).rows:
-        by_target[row["target"]].append(row)
+        if row["basis"] == basis:
+            by_target[row["target"]].append(row)
     pending, seen, path = [account_id], set(), []
     while pending:
         target = pending.pop()
@@ -232,7 +261,7 @@ def explain(uid, scenario_id, account_id, *, trace=None) -> Explanation:
                 evidence=evidence,
             )
         )
-    return Explanation(scenario_id=scenario_id, account_id=account_id, outcome="path", steps=steps)
+    return Explanation(scenario_id=scenario_id, account_id=account_id, outcome=outcome, steps=steps)
 
 
 def main() -> None:

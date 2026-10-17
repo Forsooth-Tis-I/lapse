@@ -70,6 +70,12 @@ class BotRuntime:
             action, payload = button["action"], button["payload"]
             if action == "open_web":
                 item = InlineKeyboardButton(button["label"], url=self.web_link(payload["path"]))
+            elif action == "open_url":
+                url = payload["url"]
+                parsed = urlsplit(url)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username or "\\" in url:
+                    raise ValueError("External button must use an HTTPS URL")
+                item = InlineKeyboardButton(button["label"], url=url)
             else:
                 if action not in {"approve_changes", "plan_root", "confirm_use", "dismiss_signal"}:
                     raise ValueError("Unsupported button action")

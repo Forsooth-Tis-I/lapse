@@ -83,6 +83,9 @@ def test_closing_email_adopts_ingested_signal_and_uses_lockout(detector_graph):
     method(g, "mailbox", "email", "host")
     g.query("MATCH (m:Method {id: 'mailbox'}) SET m.kind = 'mailbox'")
     method(g, "app_login", "app", "email")
+    g.query("CREATE (:Account {id: 'password-app', display: 'Password app'})")
+    method(g, "password_app_login", "password-app", password=True)
+    method(g, "password_app_recovery", "password-app", "email")
     g.query(
         "CREATE (:Signal {id: 'ingest-existing', kind: 'closing_email', root_id: 'email', "
         "deadline: '2026-12-01', at: $at, status: 'open', title: 'Closure', detail: 'ingest'})",
@@ -90,7 +93,10 @@ def test_closing_email_adopts_ingested_signal_and_uses_lockout(detector_graph):
     )
     result = detectors.run_detectors("test", now=NOW)
     assert result[0].id == "ingest-existing"
-    assert "student@example.test closes on 2026-12-01; you'd lose 1 accounts." in result[0].detail
+    assert (
+        "student@example.test closes on 2026-12-01; lost outright: 1 accounts; "
+        "no way back if you forget the password: 2 accounts."
+    ) in result[0].detail
     assert len(calls) == 1
     assert g.ro_query("MATCH (s:Signal) RETURN count(s)").result_set == [[1]]
 

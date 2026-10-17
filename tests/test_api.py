@@ -279,27 +279,69 @@ def test_screen_absolute_url_file_and_path_escape(api):
         "caption": "No screenshot yet.",
         "mock": False,
     }
-    directory = api.directory / "screens"
-    directory.mkdir()
+    directory = api.directory / "screens" / "second"
+    directory.mkdir(parents=True)
     image = b"\x89PNG\r\n\x1a\n"
     (directory / "step.png").write_bytes(image)
     api.redis.set("lapse:screen:second", "data/screens/step.png")
     response = api.client.get("/api/agent/screen", headers={"X-Lapse-Uid": "second"})
     assert response.json() == {
-        "url": "http://testserver/api/screens/step.png",
+        "url": "http://testserver/api/screens/second/step.png",
         "caption": "Latest executor screenshot",
         "mock": False,
     }
-    response = api.client.get(response.json()["url"])
+    url = response.json()["url"]
+    assert api.client.get(url).status_code == 404
+    response = api.client.get(url, headers={"X-Lapse-Uid": "second"})
     assert response.content == image
     assert response.headers["content-type"] == "image/png"
     outside = api.directory / "private.png"
     outside.write_bytes(b"private")
     (directory / "escape.png").symlink_to(outside)
-    assert api.client.get("/api/screens/escape.png").status_code == 404
-    assert api.client.get("/api/screens/missing.png").status_code == 404
+    headers = {"X-Lapse-Uid": "second"}
+    assert api.client.get("/api/screens/second/escape.png", headers=headers).status_code == 404
+    assert api.client.get("/api/screens/second/missing.png", headers=headers).status_code == 404
     (directory / "secret.txt").write_text("secret")
-    assert api.client.get("/api/screens/secret.txt").status_code == 404
+    assert api.client.get("/api/screens/second/secret.txt", headers=headers).status_code == 404
+    assert api.client.get("/api/screens/step.png", headers=headers).content == image
+
+
+def test_screens_reject_other_tenant_symlinks_and_traversal(api):
+    screens = api.directory / "screens"
+    own = screens / "demo"
+    other = screens / "other"
+    own.mkdir(parents=True)
+    other.mkdir()
+    (other / "private.png").write_bytes(b"other user")
+    (own / "escape.png").symlink_to(other / "private.png")
+    (screens / "linked").symlink_to(other, target_is_directory=True)
+    for path, uid in [
+        ("demo/escape.png", "demo"),
+        ("other/private.png", "demo"),
+        ("linked/private.png", "linked"),
+        ("demo/%2e%2e%2fother%2fprivate.png", "demo"),
+        ("private.png", "../other"),
+    ]:
+        assert api.client.get(f"/api/screens/{path}", headers={"X-Lapse-Uid": uid}).status_code == 404
+
+
+def test_screen_reads_executor_json_pointer(api):
+    directory = api.directory / "screens" / "demo"
+    directory.mkdir(parents=True)
+    (directory / "step-1.png").write_bytes(b"png")
+    api.redis.set(
+        "lapse:screen:demo",
+        json.dumps({"url": "/api/screens/demo/step-1.png", "caption": "Masked settings"}),
+    )
+    response = api.client.get("/api/agent/screen")
+    assert response.json() == {
+        "url": "http://testserver/api/screens/demo/step-1.png",
+        "caption": "Masked settings",
+        "mock": False,
+    }
+    assert api.client.get(response.json()["url"]).content == b"png"
+    api.redis.set("lapse:screen:demo", json.dumps({"url": "/api/screens/other/private.png"}))
+    assert api.client.get("/api/agent/screen").status_code == 404
 
 
 def test_onboarding_encrypts_tenant_inboxes_and_translates_persona(api, monkeypatch):

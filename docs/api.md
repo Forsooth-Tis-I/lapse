@@ -31,7 +31,8 @@ Redis connection failures return 503.
 | `POST /api/changes/{id}/otp` | `{code}`; nonempty string, at most 128 characters | Current `Change`; stores code transiently without changing status |
 | `GET /api/trace?since=<timestamp>` | Optional ISO datetime | `ToolCallRecord[]` |
 | `GET /api/agent/screen` | None | `{url: string|null, caption: string, mock: false}` |
-| `GET /api/screens/{name}` | Screenshot basename | Image from `data/screens`; PNG, JPEG, WebP, or GIF |
+| `GET /api/screens/{uid}/{name}` | Tenant and screenshot basename | Image from the selected tenant’s `data/screens/{uid}` directory; PNG, JPEG, WebP, or GIF |
+| `GET /api/screens/{name}` | Legacy screenshot basename | Same selected-tenant restriction |
 | `GET /api/stats` | None | `{nodes: integer, edges: integer, last_query_ms: number}` |
 | `POST /api/onboarding` | Inbox and persona fields below | `{telegram_code, telegram_url}` |
 | `POST /api/ingest/run` | `{}` | `{started: true}` after queuing `ingest_run` |
@@ -71,18 +72,27 @@ This replaces the earlier proposed `labels` and `data` graph envelope. Graph met
 mailbox bridges, and scenario filtering. The API does not recompute graph semantics.
 
 `ScenarioRequest.root_ids` supports compound scenarios. Takeover reports accounts the stranger can control.
-Lockout reports accounts the user cannot reach through fresh sign-in. These conclusions hold **under the methods
+Lockout reports loss of fresh sign-in or password-free recovery. These conclusions hold **under the methods
 we model**. Unmodelled services remain **unknown, not safe**.
 
-`Explanation` includes `scenario_id`, `account_id`, `outcome`, and ordered `steps`. Each `PathStep` can include
+Lockout `ScenarioResult` adds `lost_now_accounts: Reached[]` and `recovery_lost_accounts: Reached[]`, both
+optional on older stored results and defaulting to `[]`. The first lists accounts lost even with passwords;
+the second lists accounts whose password-free recovery route disappears. Before and after comparisons use
+inboxes accessible in the corresponding password-aware closure as recovery channels. Accounts already
+unreachable in a tier are excluded. `affected_accounts` is the union, not the sum, and `direct_accounts`
+contains affected accounts directly attached to a lost root. Takeover leaves both tier lists empty.
+
+`Explanation` includes `scenario_id`, `account_id`, `outcome`, and ordered `steps`. Lockout paths use outcome
+`lost_now` or `recovery_lost`; if both apply, `lost_now` wins. Takeover retains `path`. Other outcomes remain
+`not_affected` and `not_in_graph`. Each `PathStep` can include
 evidence. `Plan.steps` contains `Change` objects in execution order. A plan has no `status` field.
 Approval retries can enqueue an already-approved change after a queue failure. Running, waiting, completed, and
 skipped changes are returned unchanged. Queue delivery is at least once.
 
-Phone plans count the union of stranger-reachable accounts and accounts lost by the user after dropping the
-phone. Email and device plans measure lockout; domain plans measure takeover. `kind` remains the primary
+Phone plans count the union of stranger-reachable accounts and both user lockout tiers after dropping the
+phone. Email and device plans measure the union of both lockout tiers; domain plans measure takeover. `kind` remains the primary
 scenario for compatibility. `exposure_before` and `exposure_after` count distinct accounts, so overlapping
-components must not be added. The original lockout baseline stays fixed across all hypothetical changes.
+components must not be added. Both original lockout baselines stay fixed across all hypothetical changes.
 For an inactive phone, that baseline includes possession of the old phone before it was lost.
 
 Additive plan fields are `takeover_before`, `takeover_after`, `lockout_before`, `lockout_after`,
@@ -95,7 +105,8 @@ when known. Unmodelled services produce tier-3 steps marked "unknown, not safe".
 `ChangeProcedure.settings_note` supplies manual instructions through `Change.note`.
 
 Chat diagnostics contain `llm_tool_calls`, `llm_requests`, `fallback_used`, `guard_regenerated`, and optional
-`fallback_reason`. The reason is an exception class, never a provider response body or credential. `tool_calls`
+`fallback_reason`. Shared provider diagnostics add `llm_attempts` and `model_fallback_used`;
+the latter records ordered model failover separately from deterministic agent fallback. The reason is an exception class, never a provider response body or credential. `tool_calls`
 includes both model and fallback calls. `guard_regenerated` records an attempted single grounding rewrite.
 Chat awaits the agent inside the API trace context. Saying "approve" retrieves the plan and offers a human
 approval button; it does not enqueue execution.
@@ -167,8 +178,9 @@ re-fetch current state after reconnecting. Disconnect closes the subscription an
 
 `GET /api/agent/screen` reads the latest image path from `lapse:screen:<uid>` and returns an absolute API URL, so
 images resolve from the frontend origin. Without a path, `url` is null. Screenshot serving rejects path escapes,
-symlinks outside `data/screens`, missing files, and unsupported extensions. Image files are shared static assets
-by filename. UID selection applies to the latest-image pointer, not file authorization.
+symlinks outside the selected user’s directory, missing files, and unsupported extensions. Both screenshot
+routes confine files to `data/screens/<selected uid>`. A URL’s uid must match the selected uid. The local tenant
+header remains a selector, not authentication.
 
 ## Platform interfaces
 
@@ -193,4 +205,6 @@ All platform keys and channels begin with `lapse:`.
 `HANDLER_MODULES` can override this with a comma-separated module list. Missing modules produce warnings.
 A missing dependency inside an installed handler module remains an error. Register handlers with
 `@lapse.worker.handler(kind)`; callbacks accept `(uid, payload)`.
-APScheduler queues `run_detectors` for the default user every five minutes.
+Callbacks may be synchronous or asynchronous; the worker awaits asynchronous handlers before acknowledging jobs.
+After every successful `ingest_run`, it verifies pending changes. APScheduler queues `run_detectors` and
+`verify_pending` for every tenant every five minutes and checks T4 reminders every minute.

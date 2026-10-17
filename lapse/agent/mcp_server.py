@@ -39,7 +39,11 @@ class LapseMCP(FastMCP):
 
 
 def create_server():
-    return LapseMCP("Lapse", host="127.0.0.1", port=int(os.getenv("MCP_PORT", "8766")))
+    return LapseMCP(
+        "Lapse",
+        host=os.getenv("FASTMCP_HOST", "127.0.0.1"),
+        port=int(os.getenv("FASTMCP_PORT", os.getenv("MCP_PORT", "8766"))),
+    )
 
 
 def run():

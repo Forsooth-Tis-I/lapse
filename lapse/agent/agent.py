@@ -12,9 +12,10 @@ from urllib.parse import quote
 from httpx import HTTPError
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from openai import APIError, AsyncOpenAI
+from openai import APIError
 from redis.exceptions import RedisError
 
+from lapse import llm
 from lapse.agent import guard, memory
 from lapse.agent.tools import REGISTRY, dispatch
 from lapse.config import settings
@@ -40,6 +41,7 @@ class TurnTools:
     calls: list[str] = field(default_factory=list)
     results: list[Any] = field(default_factory=list)
     llm_requests: int = 0
+    llm_diagnostics: dict = field(default_factory=dict)
 
     async def call(self, name, arguments):
         if len(self.calls) >= MAX_TOOL_STEPS:
@@ -102,14 +104,14 @@ def create_llm():
     config = settings()
     if not config.llm_api_key:
         return None
-    return AsyncOpenAI(base_url=config.llm_base_url, api_key=config.llm_api_key, max_retries=0, timeout=20.0)
+    return llm.client(asynchronous=True)
 
 
 async def model_answer(client, messages, tools):
     while len(tools.calls) < MAX_TOOL_STEPS:
         tools.llm_requests += 1
-        response = await client.chat.completions.create(
-            model=settings().llm_model,
+        response = await llm.acomplete(
+            client, diagnostics=tools.llm_diagnostics,
             messages=messages,
             tools=tools.definitions,
             parallel_tool_calls=False,
@@ -301,6 +303,7 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                 if client is None:
                     raise ValueError("Model unavailable")
                 answer = await model_answer(client, messages, tools)
+                tools.results = guard.focused_results(tools.results)
                 if not guard.grounded(answer, tools.results):
                     diagnostics["guard_regenerated"] = True
                     messages.extend(
@@ -314,8 +317,8 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                         ]
                     )
                     tools.llm_requests += 1
-                    response = await client.chat.completions.create(
-                        model=settings().llm_model,
+                    response = await llm.acomplete(
+                        client, diagnostics=tools.llm_diagnostics,
                         messages=messages,
                     )
                     revised = response.choices[0].message
@@ -343,6 +346,7 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                 if not diagnostics["fallback_used"]:
                     diagnostics["llm_tool_calls"] = list(calls)
                 diagnostics["llm_requests"] = tools.llm_requests
+                diagnostics.update(tools.llm_diagnostics)
             buttons = buttons_for(uid, results)
     except (HTTPError, ValueError, RuntimeError, OSError, RedisError, ExceptionGroup):
         if results:

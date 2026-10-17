@@ -46,7 +46,7 @@ def test_job_onboards_then_writes_before_advancing(tmp_path, monkeypatch, fake_w
     def events(inboxes, **kwargs):
         assert order == ["onboard"]
         assert inboxes == ["email_primary", "email_college"]
-        assert kwargs == {"uid": "fake", "live": False, "eml_dir": "fixtures", "use_llm": False}
+        assert kwargs == {"uid": "fake", "live": False, "eml_dir": "fixtures", "use_llm": False, "extraction_stats": {}}
         yield "first"
         assert calls == [("fake", ["first"])]
         yield "second"
@@ -140,6 +140,7 @@ def test_cli_prints_only_summary(monkeypatch, capsys, tmp_path, source, explicit
     )
     assert calls[0][1]["persona_path"] == expected_persona
     assert capsys.readouterr().out == (
+        "LLM batches: 0/0 succeeded; JSON parsed: 0; model fallback: False\n"
         "Accounts: 2\nUSES: 3 (confirmed: 2, inferred: 1)\nSignals: 1\n"
         "Unknown services: 1\nAccounts per service:\n  google: 2\n"
     )

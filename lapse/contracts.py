@@ -238,12 +238,14 @@ class ScenarioResult(BaseModel):
     root_ids: list[str]
     actor: Literal["stranger", "user"]
     rounds: int
-    # takeover: accounts the stranger controls. lockout: accounts the user can no longer reach.
+    # takeover: accounts the stranger controls. lockout: union of lost sign-in and recovery access.
     affected_accounts: list[Reached]
     direct_accounts: list[str]  # depth-1 view: accounts a single root alone opens (or loses)
     unknown_accounts: list[str]  # modelled=False accounts touching these roots: "unknown, not safe"
     total_accounts: int
     ms: float
+    lost_now_accounts: list[Reached] = []
+    recovery_lost_accounts: list[Reached] = []
 
 
 class PathStep(BaseModel):
@@ -260,7 +262,7 @@ class PathStep(BaseModel):
 class Explanation(BaseModel):
     scenario_id: str
     account_id: str
-    outcome: Literal["path", "not_affected", "not_in_graph"]
+    outcome: Literal["path", "lost_now", "recovery_lost", "not_affected", "not_in_graph"]
     steps: list[PathStep] = []  # ordered from the seed root to the account
 
 

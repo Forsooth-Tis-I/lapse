@@ -47,15 +47,37 @@ def main():
             report["plans"].append(plan)
             print(old, plan["exposure_before"], "->", plan["exposure_after"], flush=True)
         if args.chat:
-            for prompt in PROMPTS:
+            required_tools = [
+                {"resolve", "takeover_if_reassigned"}, {"resolve", "explain"},
+                {"resolve", "lockout_if_lost"}, {"resolve", "plan_retirement"},
+                {"resolve", "account_info"}, {"plan_status"},
+            ]
+            for index, prompt in enumerate(PROMPTS):
                 start = perf_counter()
                 response = client.post("/api/chat", json={"text": prompt})
                 elapsed = perf_counter() - start
                 response.raise_for_status()
                 reply = response.json()
+                answer = reply["text"].casefold()
+                valid = required_tools[index] <= set(reply["tool_calls"]) and "under the methods we model" in answer
+                if index == 0:
+                    valid = valid and any(word in answer for word in ("takeover", "stranger", "reassigned"))
+                elif index == 2:
+                    valid = valid and "lost outright" in answer and "forget the password" in answer
+                    valid = valid and all(
+                        account["label"].casefold() in answer
+                        for account in report["scenarios"][1]["recovery_lost_accounts"]
+                    )
+                elif index == 4:
+                    valid = valid and "unknown, not safe" in answer
+                elif index == 5:
+                    valid = valid and "execute_change" not in reply["tool_calls"] and any(
+                        button["action"] == "approve_changes" for button in reply["buttons"]
+                    )
                 report["chat"].append(
                     {
                         "prompt": prompt,
+                        "validated": valid,
                         "seconds": round(elapsed, 3),
                         "text": reply["text"],
                         "tool_calls": reply["tool_calls"],
@@ -73,6 +95,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print("Saved", args.output, flush=True)
+    assert all(row["validated"] for row in report["chat"]), "Chat smoke validation failed; inspect report"
 
 
 if __name__ == "__main__":

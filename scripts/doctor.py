@@ -12,8 +12,11 @@ from pathlib import Path
 
 import httpx
 from dotenv.parser import parse_stream
+from openai import OpenAIError
 from redis import Redis
 from redis.exceptions import RedisError
+
+from lapse import llm
 
 REQUIRED = (
     "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "TELEGRAM_BOT_TOKEN",
@@ -74,18 +77,21 @@ def check_falkordb(env: dict[str, str]) -> Check:
 
 
 def check_llm(env: dict[str, str]) -> Check:
-    hint = "Check LLM_BASE_URL, LLM_API_KEY and LLM_MODEL; /models must list the model."
+    hint = "Check LLM_BASE_URL, LLM_API_KEY and LLM_MODEL; chat completion must succeed."
     if not configured(env, "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"):
         return Check("LLM", False, hint)
     try:
-        response = httpx.get(
-            env["LLM_BASE_URL"].rstrip("/") + "/models",
-            headers={"Authorization": "Bearer " + env["LLM_API_KEY"]}, timeout=TIMEOUT,
-        )
-        response.raise_for_status()
-        found = any(item.get("id") == env["LLM_MODEL"] for item in response.json()["data"])
-        return Check("LLM", found, "Endpoint reachable; configured model listed." if found else hint)
-    except (httpx.HTTPError, httpx.InvalidURL, ValueError, KeyError, TypeError, AttributeError):
+        with llm.client(base_url=env["LLM_BASE_URL"], api_key=env["LLM_API_KEY"]) as connection:
+            response = llm.complete(
+                connection,
+                messages=[{"role": "user", "content": "Reply OK."}],
+                max_tokens=1,
+                model=env["LLM_MODEL"],
+                fallback_models="",
+            )
+        ok = bool(response.choices)
+        return Check("LLM", ok, "One-token chat completion succeeded." if ok else hint)
+    except (OpenAIError, ValueError, TypeError, AttributeError):
         return Check("LLM", False, hint)
 
 

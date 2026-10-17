@@ -177,7 +177,6 @@ def test_telegram_expired_link(redis):
 
 def test_worker_registry_dispatch_scheduler_and_missing_modules(redis, monkeypatch, caplog):
     monkeypatch.setattr(worker, "HANDLERS", {})
-    monkeypatch.setattr(worker, "settings", lambda: SimpleNamespace(uid="u1"))
     monkeypatch.setenv("HANDLER_MODULES", "lapse.exec.jobs, lapse.ingest.jobs")
     executed = []
 
@@ -198,8 +197,11 @@ def test_worker_registry_dispatch_scheduler_and_missing_modules(redis, monkeypat
     assert executed == [("u1", {"change_id": "c1"})]
     good.ack.assert_called_once_with()
     bad.retry.assert_called_once_with()
-    scheduler.add_job.assert_called_once_with(
-        jobs.enqueue, "interval", minutes=5, args=["u1", "run_detectors", {}]
+    scheduler.add_job.assert_any_call(worker.enqueue_periodic_jobs, "interval", minutes=5, id="tenant_checks")
+    from lapse.exec.t4_offline import send_due_reminders
+
+    scheduler.add_job.assert_any_call(
+        send_due_reminders, "interval", seconds=60, id="exec_reminders", replace_existing=True
     )
     scheduler.start.assert_called_once_with()
     scheduler.shutdown.assert_called_once_with()

@@ -72,7 +72,24 @@ def grounded(text: str, results: list) -> bool:
     )
 
 
+def focused_results(results: list) -> list:
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        candidates = result.get("candidates", [])
+        if len(candidates) == 1 and candidates[0].get("kind") == "root":
+            root_id = candidates[0]["id"]
+            return [
+                item for item in results
+                if not isinstance(item, dict) or "affected_accounts" not in item or root_id in item["root_ids"]
+            ]
+    return results
+
+
 def templated(results: list) -> str:
+    scenarios = {r["kind"]: r for r in results if isinstance(r, dict) and "affected_accounts" in r}
+    if len(scenarios) > 1 and isinstance(results[-1], dict) and "affected_accounts" in results[-1]:
+        return "\n".join(templated([result]) for result in scenarios.values())
     for result in reversed(results):
         if not isinstance(result, dict):
             if isinstance(result, list) and result:
@@ -92,6 +109,16 @@ def templated(results: list) -> str:
             labels = ", ".join(a["label"] for a in result["affected_accounts"]) or "none"
             unknown = result.get("unknown_accounts", [])
             extra = f" Unknown, not safe: {', '.join(unknown)}." if unknown else ""
+            if result["kind"] == "lockout" and "lost_now_accounts" in result:
+                lost = result["lost_now_accounts"]
+                recovery = result["recovery_lost_accounts"]
+                lost_labels = ", ".join(a["label"] for a in lost) or "none"
+                recovery_labels = ", ".join(a["label"] for a in recovery) or "none"
+                return (
+                    f"Under the methods we model, lost outright: {len(lost)} ({lost_labels}); "
+                    f"no way back if you forget the password: {len(recovery)} ({recovery_labels})."
+                    f"{extra} Plan the fix next."
+                )
             via = "other accounts"
             for hub in result.get("via_accounts", []):
                 if len(hub["accounts"]) == indirect:
@@ -123,14 +150,17 @@ def templated(results: list) -> str:
             )
         if result.get("outcome") == "not_affected":
             return "This account is not affected in this scenario under the methods we model. Review its methods next."
-        if result.get("outcome") == "path":
+        if result.get("outcome") in {"path", "lost_now", "recovery_lost"}:
             path = "; ".join(
                 f"{s['from_label']} to {s['to_label']} through {s['method_label']}" for s in result["steps"]
             )
             scenario = next(
                 (r for r in reversed(results) if isinstance(r, dict) and "affected_accounts" in r), {}
             )
-            kind = scenario.get("kind", "risk")
+            kind = {
+                "lost_now": "lost outright",
+                "recovery_lost": "no way back if you forget the password",
+            }.get(result["outcome"], scenario.get("kind", "risk"))
             return f"Under the methods we model, {kind}: {path}. Review all required method branches, then plan the fix."
         if "candidates" in result:
             choices = ", ".join(c["label"] for c in result["candidates"])
