@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -23,6 +24,7 @@ from lapse.config import settings
 from lapse.trace import current_turn, tool_call
 
 MAX_TOOL_STEPS = 6
+LLM_BUDGET_SECONDS = 4
 SYSTEM = Path(__file__).with_name("prompts").joinpath("system.md").read_text()
 
 
@@ -130,14 +132,15 @@ async def model_answer(client, messages, tools, previous):
         tools.llm_requests += 1
         started = perf_counter()
         try:
-            response = await llm.acomplete(
-                client, diagnostics=tools.llm_diagnostics,
-                messages=messages,
-                tools=tools.definitions,
-                parallel_tool_calls=False,
-                tool_choice="auto",
-                max_tokens=256,
-            )
+            async with asyncio.timeout(LLM_BUDGET_SECONDS - tools.llm_ms / 1000):
+                response = await llm.acomplete(
+                    client, diagnostics=tools.llm_diagnostics,
+                    messages=messages,
+                    tools=tools.definitions,
+                    parallel_tool_calls=False,
+                    tool_choice="auto",
+                    max_tokens=256,
+                )
         finally:
             tools.llm_ms += (perf_counter() - started) * 1000
         message = response.choices[0].message

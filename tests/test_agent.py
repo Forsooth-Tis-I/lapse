@@ -582,6 +582,29 @@ async def test_one_model_selection_uses_catalog_and_reports_stage_timings(offlin
     assert reply["tool_calls"] == ["list_entities", "takeover_if_reassigned"]
 
 
+async def test_slow_model_is_cancelled_and_falls_back_to_grounded_tools(offline, monkeypatch):
+    offline.llm = FakeLLM()
+    cancelled = []
+
+    async def slow_model(**kwargs):
+        try:
+            await anyio.sleep_forever()
+        finally:
+            cancelled.append(True)
+
+    monkeypatch.setattr(offline.llm.chat.completions, "create", slow_model)
+    monkeypatch.setattr(agent, "LLM_BUDGET_SECONDS", 0.01)
+    reply = await agent.respond("alice", "what happens if someone gets my old number?")
+    assert cancelled == [True]
+    assert offline.llm.closed
+    assert reply["diagnostics"]["fallback_reason"] == "TimeoutError"
+    assert reply["diagnostics"]["llm_requests"] == 1
+    assert reply["diagnostics"]["llm_ms"] > 0
+    assert reply["tool_calls"] == ["list_entities", "resolve", "takeover_if_reassigned"]
+    assert "directly: 1; through other accounts: 1 more" in reply["text"]
+    assert "under the methods we model" in reply["text"].lower()
+
+
 async def test_ambiguous_resolution_stops_before_scenario(offline, monkeypatch):
     original = agent.dispatch
 
