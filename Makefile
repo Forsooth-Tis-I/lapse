@@ -38,3 +38,26 @@ mcp:
 
 web:
 	cd web && npm run dev
+
+.PHONY: demo demo-down tunnel doctor logs
+
+demo:         ## build and start the local stack
+	docker compose build
+	docker compose up -d
+
+demo-down:    ## stop the stack, including an optional tunnel; keep data
+	docker compose --profile tunnel down
+
+tunnel:       ## start a temporary public URL; wait up to 60 seconds for it
+	docker compose --profile tunnel up -d tunnel
+	@for attempt in $$(seq 1 30); do \
+		url=$$(docker compose logs --no-color tunnel 2>&1 | sed -n 's/.*\(https:\/\/[a-zA-Z0-9-]*\.trycloudflare\.com\).*/\1/p' | tail -1); \
+		if [ -n "$$url" ]; then echo "$$url"; exit 0; fi; \
+		sleep 2; \
+	done; echo "No tunnel URL yet. Check: make logs s=tunnel"; exit 1
+
+doctor:
+	uv run python scripts/doctor.py
+
+logs:
+	docker compose logs -f $(s)
