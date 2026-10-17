@@ -1,26 +1,32 @@
 # MCP tool contract
 
-These are the planned fixed tools from build-plan section 5. WP1 supplies graph reasoning, WP4 exposes tools, and executors handle approved actions. Foundation supplies the named-query runner. This reference does not claim that tool handlers or the planned query files already exist.
+These are the planned fixed tools from build-plan section 5. WP1 supplies graph reasoning, WP4 exposes tools, and executors handle approved actions. Foundation supplies the named-query runner. The graph functions and query files below exist; WP4 supplies the MCP handlers.
 
 Arguments are resolved against the current user's graph before work starts. A missing root returns `unknown_root`; an absent account or an unmodelled account cannot produce a claim of safety. Service and account names in a generated answer must appear in that turn's tool results. Risk claims use "under the methods we model".
 
 ## Tools and query files
 
-Every filename in this table is planned under `lapse/graph/queries/`. A tool may use several queries. WP1 and WP4 can rename these files together with this reference when implementing them. Return models refer to [contracts.py](../lapse/contracts.py); descriptions marked proposed have no shared response model.
+Every query filename in this table exists under `lapse/graph/queries/`. A tool may use several queries. Return models refer to [contracts.py](../lapse/contracts.py); descriptions marked proposed have no shared response model.
 
-| Tool and arguments | Return | Planned query files |
+| Tool and arguments | Return | Query files |
 | --- | --- | --- |
-| `list_roots()` | `list[Root]`, including status, confirmed flag, and available deadline fields. | `list_roots.cypher` |
-| `resolve(hint: str)` | Proposed matching root or account IDs and labels, with candidates for disambiguation when several match. | `resolve.cypher` |
-| `dependents(root_id: str, depth: 1 or "full")` | Proposed direct account IDs for depth 1, or a full takeover summary. Direct means a root alone suffices, not every account with a USES edge. | `direct_dependents.cypher`; full depth uses scenario queries below. |
-| `takeover_if_reassigned(root_id: str)` | `ScenarioResult` for a stranger with that root and no password knowledge. | `scenario_context.cypher`, `closure_round.cypher`, `write_scenario.cypher`, `write_derivation.cypher` |
-| `lockout_if_lost(root_id: str)` | `ScenarioResult` with accounts the user cannot reach after fresh sign-in without that root. | `scenario_context.cypher`, `closure_round.cypher`, `write_scenario.cypher`, `write_derivation.cypher` |
-| `explain(account_id: str, scenario_id: str)` | `Explanation` with all required method branches and supporting evidence. | `explain.cypher`, `account_evidence.cypher` |
-| `account_info(account_id: str)` | Proposed account, USES relationships, methods, and Evidence records, or an explicit unmodelled result. | `account_info.cypher`, `account_methods.cypher`, `account_evidence.cypher` |
-| `search_evidence(text: str)` | Proposed `list[Evidence]` with full-text matches from subjects and snippets. | `search_evidence.cypher` |
-| `plan_retirement(old_root_id: str, new_root_id: str or null = null, deadline: date or null = null)` | `Plan` ordered by exposure removed, old-root requirement, and tier. | `plan_inputs.cypher`, `closure_round.cypher`, `write_plan.cypher` |
-| `plan_status(plan_id: str)` | `Plan`, including current Change statuses. | `plan_status.cypher` |
-| `execute_change(change_id: str, approval_token: str)` | Proposed stream of `ExecStep` events. Requires a valid human-issued, single-use approval token. | `change_info.cypher`, `update_change.cypher`, `record_action.cypher` |
+| `list_roots()` | `list[Root]`, including status, confirmed flag, and available deadline fields. | `view_roots.cypher` |
+| `resolve(hint: str)` | Proposed matching root or account IDs and labels, with candidates for disambiguation when several match. | WP4 handler pending; no query registered. |
+| `dependents(root_id: str, depth: 1 or "full")` | Proposed direct account IDs for depth 1, or a full takeover summary. Direct means a root alone suffices, not every account with a USES edge. | `scenario_context.cypher`, `scenario_accounts.cypher`, `closure_seeds.cypher`, `closure_round.cypher`; full depth also persists the scenario. |
+| `takeover_if_reassigned(root_id: str)` | `ScenarioResult` for a stranger with that root and no password knowledge. | `scenario_context.cypher`, `scenario_accounts.cypher`, `scenario_disabled.cypher`, `closure_seeds.cypher`, `closure_round.cypher`, `write_scenario.cypher`, `write_reached.cypher`, `write_derivation.cypher` |
+| `lockout_if_lost(root_id: str)` | `ScenarioResult` with accounts reachable in the no-loss baseline but unreachable after fresh sign-in without that root. | `scenario_context.cypher`, `scenario_accounts.cypher`, `scenario_disabled.cypher`, `closure_seeds.cypher`, `closure_round.cypher`, `write_scenario.cypher`, `write_reached.cypher`, `write_derivation.cypher` |
+| `explain(account_id: str, scenario_id: str)` | `Explanation` with all required method branches and supporting evidence. | `get_scenario.cypher`, `scenario_account.cypher`, `explain.cypher`, `account_evidence.cypher` |
+| `account_info(account_id: str)` | Proposed account, USES relationships, methods, and Evidence records, or an explicit unmodelled result. | `view_accounts.cypher`, `view_uses.cypher`, `view_methods.cypher`, `view_evidence.cypher` |
+| `search_evidence(text: str)` | Proposed `list[Evidence]` with full-text matches from subjects and snippets. | `view_search_evidence.cypher` |
+| `plan_retirement(old_root_id: str, new_root_id: str or null = null, deadline: date or null = null)` | `Plan` ordered by exposure removed, old-root requirement, and tier. | `planner_roots.cypher`, `planner_candidates.cypher`, `closure_round.cypher`, `planner_save_plan.cypher`, `planner_save_steps.cypher`, `planner_step_order.cypher` |
+| `plan_status(plan_id: str)` | `Plan`, including current Change statuses. | `planner_get_plan.cypher`, `planner_list_plans.cypher` |
+| `execute_change(change_id: str, approval_token: str)` | Proposed stream of `ExecStep` events. Requires a valid human-issued, single-use approval token. | `planner_get_change.cypher`, `planner_update_change.cypher`, `planner_repoint_use.cypher`, `planner_drop_use.cypher`; execution and action logging remain WP8-owned. |
+
+Scenario reads use `get_scenario.cypher`. Persistence records timing through `scenario_timing.cypher` and retains the latest 20 scenarios through `scenario_old.cypher`, `scenario_prune_derivations.cypher`, and `scenario_prune.cypher`.
+
+Planner simulations use FalkorDB `GRAPH.COPY` through the client graph-copy API. Each candidate changes a copy of the current sandbox and runs the same scenario evaluator. The planner deletes trial and working sandboxes, including when evaluation fails. `planner_compile_account.cypher`, `planner_compile_clear_methods.cypher`, `planner_compile_clear_enables.cypher`, and `planner_compile_enables.cypher` scope recompilation to one account. The helper reuses `compile_methods.cypher` and `compile_needs.cypher`, honors absent-role rules, and preserves observed methods. `planner_change_evidence.cypher` attaches completion evidence.
+
+`graph_view` uses `view_roots.cypher`, `view_accounts.cypher`, `view_uses.cypher`, `view_methods.cypher`, `view_scenario.cypher`, and `view_derived.cypher`. It returns the web GraphData fields plus node `status`, `round`, `affected`, and `unknown`, and edge `derived` flags. Edges point from prerequisite to dependent. `stats` uses `graph_node_count.cypher`, `graph_edge_count.cypher`, and `view_label_counts.cypher`; `last_query_ms` is the final statistics query's elapsed time.
 
 The scenario tools retain their section 5 single-root signatures. The underlying `ScenarioRequest` and REST API support compound `root_ids`. A future MCP extension for compound scenarios needs an explicit signature decision.
 
