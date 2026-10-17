@@ -1,1 +1,3 @@
-MATCH (:Account {id: $account_id})-[u:USES {role: $role}]->(:Root {id: $from_root}) DELETE u
+MATCH (:Account {id: $account_id})-[u:USES]->(:Root {id: $from_root})
+WHERE u.role IN $roles
+DELETE u

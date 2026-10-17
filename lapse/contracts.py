@@ -130,8 +130,11 @@ class ChangeProcedure(BaseModel):
 
     root_kind: RootKind
     tier: Literal[1, 2, 3, 4]  # 1 automatic, 2 agent browser + OTP relay, 3 assisted deep link, 4 offline
-    requires: list[Literal["password", "old_otp", "new_otp", "email_otp_old", "email_otp_new", "in_person"]] = []
+    requires: list[
+        Literal["password", "old_otp", "new_otp", "email_otp_old", "email_otp_new", "in_person"]
+    ] = []
     settings_url: str | None = None
+    settings_note: str | None = None
     recipe: str | None = None  # executor recipe name for tier 1/2
     confirmation_patterns: list[str] = []  # regexes matched against evidence subject/snippet
     doc_url: str | None = None
@@ -280,6 +283,8 @@ class Change(BaseModel):
     account_id: str
     account_label: str
     role: UseRole
+    roles: list[UseRole] = Field(default_factory=list)
+    title: str | None = None
     from_root: str
     to_root: str | None
     tier: Literal[1, 2, 3, 4]
@@ -300,6 +305,13 @@ class Plan(BaseModel):
     feasible: bool
     exposure_before: int
     exposure_after: int
+    takeover_before: int = 0
+    takeover_after: int = 0
+    lockout_before: int = 0
+    lockout_after: int = 0
+    remaining_accounts: list[str] = Field(default_factory=list)
+    unknown_accounts: list[str] = Field(default_factory=list)
+    note: str | None = None
     steps: list[Change]
     created_at: datetime
 

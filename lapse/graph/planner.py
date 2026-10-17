@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
-from itertools import product
 from uuid import uuid4
 
 from falkordb.graph import Graph
@@ -19,74 +17,40 @@ from lapse.contracts import (
     ServicePolicy,
 )
 from lapse.graph import db
+from lapse.graph.closure import closure
 from lapse.graph.scenarios import evaluate_scenario
 from lapse.policy import loader
+from lapse.policy.compile import compile_user_graph
 
 
 def _policies() -> list[ServicePolicy]:
     return [policy for path in loader.default_policy_paths() for policy in loader.load_policy_file(path)[0]]
 
 
-def _compile_account(g: Graph, account_id: str, policies: list[ServicePolicy], *, trace=None) -> None:
-    rows = db.run(g, "planner_compile_account", {"account_id": account_id}, trace=trace).rows
-    methods, needs = [], []
-    if rows:
-        account = rows[0]["account"]
-        policy = next((p for p in policies if p.service.id == account["service_id"]), None)
-        if policy and policy.service.modelled and account.get("modelled", True):
-            roles = defaultdict(set)
-            for use in rows[0]["uses"]:
-                if use["root_id"] is not None:
-                    roles[use["role"]].add(use["root_id"])
-            for template in policy.methods:
-                if any(roles[role] for role in template.requires_absent_roles):
-                    continue
-                if not template.needs_roles and not template.needs_password:
-                    raise ValueError(f"Zero-need method {template.id} must need a password")
-                choices = [sorted(roles[role]) for role in template.needs_roles]
-                for index, roots in enumerate(product(*choices)):
-                    method_id = f"m:{account_id}:{template.id}" + (f":{index}" if index else "")
-                    methods.append(
-                        {
-                            "props": {
-                                "id": method_id,
-                                "account_id": account_id,
-                                "kind": template.kind,
-                                "label": template.label,
-                                "needs_password": template.needs_password,
-                                "source": "policy",
-                                "doc_url": template.doc_url,
-                            },
-                            "target_id": account_id,
-                        }
-                    )
-                    needs.extend(
-                        {"method_id": method_id, "node_id": root, "role": role.value}
-                        for role, root in zip(template.needs_roles, roots, strict=True)
-                    )
-    db.run(g, "planner_compile_clear_methods", {"account_id": account_id}, write=True, trace=trace)
-    db.run(g, "planner_compile_clear_enables", {"account_id": account_id}, write=True, trace=trace)
-    db.run(g, "compile_methods", {"methods": methods}, write=True, trace=trace)
-    db.run(g, "compile_needs", {"needs": needs}, write=True, trace=trace)
-    db.run(g, "planner_compile_enables", {"account_id": account_id}, write=True, trace=trace)
-
-
 def _apply(g: Graph, change: Change, policies: list[ServicePolicy], *, trace=None) -> None:
     db.run(
         g,
         "planner_repoint_use" if change.to_root else "planner_drop_use",
-        change.model_dump(mode="json"),
+        {**change.model_dump(mode="json"), "roles": change.roles or [change.role]},
         write=True,
         trace=trace,
     )
-    _compile_account(g, change.account_id, policies, trace=trace)
+    compile_user_graph(g, policies, account_ids=[change.account_id], trace=trace)
 
 
-def _exposure(g: Graph, req: ScenarioRequest, baseline: set[str] | None, *, trace=None) -> int:
-    evaluation = evaluate_scenario(g, req, trace=trace)
-    if baseline is None:
-        return len(evaluation.result.affected_accounts)
-    return len(baseline - evaluation.closure.reached.keys())
+def _exposure(g: Graph, root: Root, baseline: set[str] | None, *, trace=None) -> tuple[set[str], set[str]]:
+    taken, lost = set(), set()
+    if root.kind in {RootKind.phone, RootKind.domain}:
+        evaluation = evaluate_scenario(
+            g, ScenarioRequest(kind=ScenarioKind.takeover, root_ids=[root.id]), trace=trace
+        )
+        taken = {node.node_id for node in evaluation.result.affected_accounts}
+    if baseline is not None:
+        evaluation = evaluate_scenario(
+            g, ScenarioRequest(kind=ScenarioKind.lockout, root_ids=[root.id]), trace=trace
+        )
+        lost = baseline - evaluation.closure.reached.keys()
+    return taken, lost
 
 
 def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) -> Plan:
@@ -108,17 +72,33 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
     elif isinstance(deadline, str):
         deadline = date.fromisoformat(deadline)
     kind = ScenarioKind.lockout if root.kind in {RootKind.email, RootKind.device} else ScenarioKind.takeover
-    req = ScenarioRequest(kind=kind, root_ids=[old_root])
     policies = _policies()
     by_service = {policy.service.id: policy for policy in policies}
     plan_id = f"plan:{uuid4().hex}"
     remaining = []
+    unknown_accounts = set()
     for row in db.run(g, "planner_candidates", {"root_id": old_root}, trace=trace).rows:
         policy = by_service.get(row["service_id"])
         procedure = next((p for p in policy.change if p.root_kind == root.kind), None) if policy else None
-        if procedure is None:
-            continue
-        requires_old_root = bool({"old_otp", "email_otp_old"}.intersection(procedure.requires))
+        unknown = policy is None or not policy.service.modelled or not row["modelled"]
+        note = procedure.settings_note if procedure else None
+        if unknown:
+            unknown_accounts.add(row["account_id"])
+            note = "unknown, not safe: recovery methods are unmodelled; verify the change manually."
+        elif procedure is None:
+            note = "manual: no documented procedure for this root kind; verify every listed role in settings."
+        requires_old_root = bool(procedure and {"old_otp", "email_otp_old"}.intersection(procedure.requires))
+        roles = sorted(row["roles"])
+        role_labels = {"recovery_phone": "recovery phone", "sms_2fa": "2-Step phone"}
+        label = policy.service.name if policy else row["account_label"]
+        title = f"Move {label}'s " + " and ".join(
+            role_labels.get(role, role.replace("_", " ")) for role in roles
+        )
+        settings_url = (
+            (procedure.settings_url if procedure else None)
+            or (policy.service.doc_url if policy else None)
+            or row["doc_url"]
+        )
         remaining.append(
             Change(
                 id=f"change:{uuid4().hex}",
@@ -126,23 +106,36 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
                 order=0,
                 account_id=row["account_id"],
                 account_label=row["account_label"],
-                role=row["role"],
+                role=roles[0],
+                roles=roles,
+                title=title,
                 from_root=old_root,
                 to_root=new_root,
-                tier=procedure.tier,
+                tier=3 if unknown or procedure is None else procedure.tier,
                 requires_old_root=requires_old_root,
                 due=deadline - timedelta(days=1) if deadline else None,
-                settings_url=procedure.settings_url,
+                settings_url=settings_url,
+                note=note,
             )
         )
-    original = evaluate_scenario(g, req, trace=trace)
-    baseline = (
-        {node_id for node_id, node in original.baseline.reached.items() if node.node_type == "Account"}
-        if original.baseline is not None
-        else None
-    )
-    exposure_before = len(original.result.affected_accounts)
+    baseline = None
+    if root.kind in {RootKind.phone, RootKind.email, RootKind.device}:
+        original = evaluate_scenario(
+            g, ScenarioRequest(kind=ScenarioKind.lockout, root_ids=[old_root]), trace=trace
+        )
+        held_before = original.baseline
+        if root.kind == RootKind.phone and root.status not in HELD_STATUSES:
+            held_before = closure(g, [*original.seeds, old_root], pw=True, trace=trace)
+        baseline = {node.node_id for node in held_before.reached.values() if node.node_type == "Account"}
+    if root.kind in {RootKind.phone, RootKind.domain}:
+        takeover = evaluate_scenario(
+            g, ScenarioRequest(kind=ScenarioKind.takeover, root_ids=[old_root]), trace=trace
+        )
+        unknown_accounts.update(takeover.result.unknown_accounts)
+    taken_before, lost_before = _exposure(g, root, baseline, trace=trace)
+    exposure_before = len(taken_before | lost_before)
     exposure = exposure_before
+    taken, lost = taken_before, lost_before
     steps = []
     feasible = not any(
         change.requires_old_root
@@ -150,28 +143,29 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
         for change in remaining
     )
     if remaining:
-        working = g.copy(f"lapse:sandbox:{uid}:{plan_id}")
+        working = db.copy_graph(g, f"lapse:sandbox:{uid}:{plan_id}")
         try:
             while remaining:
                 scored = []
                 for change in remaining:
-                    trial = working.copy(f"{working.name}:{change.id}")
+                    trial = db.copy_graph(working, f"{working.name}:{change.id}")
                     try:
                         _apply(trial, change, policies, trace=trace)
-                        after = _exposure(trial, req, baseline, trace=trace)
-                        scored.append((change, after))
+                        components = _exposure(trial, root, baseline, trace=trace)
+                        scored.append((change, components))
                     finally:
                         trial.delete()
-                winner, after = min(
+                winner, (taken, lost) = min(
                     scored,
                     key=lambda item: (
-                        item[1],
+                        len(item[1][0] | item[1][1]),
                         not item[0].requires_old_root,
                         item[0].tier,
                         item[0].account_id,
                         item[0].role,
                     ),
                 )
+                after = len(taken | lost)
                 winner.order = len(steps) + 1
                 winner.exposure_removed = exposure - after
                 _apply(working, winner, policies, trace=trace)
@@ -180,6 +174,15 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
                 exposure = after
         finally:
             working.delete()
+    notes = ["Exposure counts distinct affected accounts under the methods we model."]
+    if taken:
+        notes.append("Remaining takeover: " + ", ".join(sorted(taken)) + ".")
+    if lost:
+        notes.append(
+            "Remaining lockout: " + ", ".join(sorted(lost)) + "; these changes do not restore access."
+        )
+    if unknown_accounts:
+        notes.append("Unknown, not safe: " + ", ".join(sorted(unknown_accounts)) + ".")
     plan = Plan(
         id=plan_id,
         kind=kind,
@@ -189,6 +192,13 @@ def plan_for_root(uid, old_root, new_root=None, deadline=None, *, trace=None) ->
         feasible=feasible,
         exposure_before=exposure_before,
         exposure_after=exposure,
+        takeover_before=len(taken_before),
+        takeover_after=len(taken),
+        lockout_before=len(lost_before),
+        lockout_after=len(lost),
+        remaining_accounts=sorted(taken | lost),
+        unknown_accounts=sorted(unknown_accounts),
+        note=" ".join(notes),
         steps=steps,
         created_at=datetime.now(UTC),
     )

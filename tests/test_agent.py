@@ -472,3 +472,20 @@ async def test_turns_persist_with_about_links_and_last_eight_history(world, monk
         except ResponseError as exc:
             if "Invalid graph operation on empty key" not in str(exc):
                 raise
+
+
+@pytest.mark.parametrize(
+    "prompt, expected",
+    [
+        ("what happens if someone gets my old number?", ["resolve", "takeover_if_reassigned"]),
+        ("what do I lose when my college email closes?", ["resolve", "lockout_if_lost"]),
+        ("is dropbox safe?", ["resolve", "account_info"]),
+    ],
+)
+async def test_demo_wording_routes_when_model_is_unavailable(offline, prompt, expected):
+    offline.llm = FakeLLM(RuntimeError("provider unavailable"))
+    reply = await agent.respond("alice", prompt)
+    assert reply["tool_calls"] == expected
+    assert reply["diagnostics"]["fallback_used"] is True
+    assert reply["diagnostics"]["llm_tool_calls"] == []
+    assert reply["diagnostics"]["guard_regenerated"] is False

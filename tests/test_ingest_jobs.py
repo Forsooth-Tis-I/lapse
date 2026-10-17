@@ -7,6 +7,12 @@ from lapse import onboarding
 from lapse.ingest import jobs, pipeline
 
 
+def test_ingest_handler_registered():
+    from lapse.worker import HANDLERS
+
+    assert HANDLERS["ingest_run"] is jobs.handle_ingest_run
+
+
 @pytest.fixture
 def fake_writer(monkeypatch):
     module = ModuleType("lapse.ingest.writer")
@@ -40,7 +46,7 @@ def test_job_onboards_then_writes_before_advancing(tmp_path, monkeypatch, fake_w
     def events(inboxes, **kwargs):
         assert order == ["onboard"]
         assert inboxes == ["email_primary", "email_college"]
-        assert kwargs == {"live": False, "eml_dir": "fixtures", "use_llm": False}
+        assert kwargs == {"uid": "fake", "live": False, "eml_dir": "fixtures", "use_llm": False}
         yield "first"
         assert calls == [("fake", ["first"])]
         yield "second"

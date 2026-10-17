@@ -82,10 +82,14 @@ def parse_email(payload: bytes, inbox: str, fallback_date: datetime | None = Non
 
 @contextmanager
 def fetch_emails(
-    inbox: str, *, state_path: Path = DATA_DIR / "ingest_state.json", client_factory=IMAPClient
+    inbox: str,
+    *,
+    uid: str | None = None,
+    state_path: Path = DATA_DIR / "ingest_state.json",
+    client_factory=IMAPClient,
 ) -> Iterator[Iterator[RawEmail]]:
     """Checkpoint only when the complete scan and its consumer finish successfully."""
-    config = inbox_settings(inbox)
+    config = inbox_settings(inbox, uid=uid)
     state = read_json(state_path)
     with client_factory(config.host, ssl=True, timeout=30) as client:
         client.login(config.user, config.password)
@@ -111,9 +115,9 @@ def fetch_emails(
 
         def messages():
             nonlocal consumed
-            for uid in uids:
-                response = client.fetch([uid], ["BODY.PEEK[]", "INTERNALDATE"])
-                record = response[uid]
+            for message_uid in uids:
+                response = client.fetch([message_uid], ["BODY.PEEK[]", "INTERNALDATE"])
+                record = response[message_uid]
                 yield parse_email(record[b"BODY[]"], inbox, record.get(b"INTERNALDATE"))
             consumed = True
 
