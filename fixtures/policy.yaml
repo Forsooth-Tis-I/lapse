@@ -1,0 +1,504 @@
+# Synthetic demo subset, not a verified service-policy reference.
+services:
+- service:
+    id: google
+    name: Google
+    domains:
+    - google.com
+    category: identity
+    modelled: true
+    doc_url: https://support.google.com/accounts/
+  verified_at: 2026-10-17
+  methods:
+  - id: login_sms
+    kind: login
+    label: Login sms
+    needs_roles:
+    - sms_2fa
+    needs_password: true
+    doc_url: https://support.google.com/accounts/
+  - id: login_totp
+    kind: login
+    label: Login totp
+    needs_roles:
+    - totp_device
+    needs_password: true
+    doc_url: https://support.google.com/accounts/
+  - id: reset_recovery_phone
+    kind: reset
+    label: Reset recovery phone
+    needs_roles:
+    - recovery_phone
+    needs_password: false
+    doc_url: https://support.google.com/accounts/
+  - id: reset_recovery_email
+    kind: reset
+    label: Reset recovery email
+    needs_roles:
+    - recovery_email
+    needs_password: false
+    doc_url: https://support.google.com/accounts/
+  change:
+  - root_kind: phone
+    tier: 3
+    requires:
+    - password
+    - new_otp
+    settings_url: https://myaccount.google.com/signinoptions/rescuephone
+    recipe: null
+    confirmation_patterns:
+    - (?i)recovery phone
+    doc_url: https://support.google.com/accounts/
+  - root_kind: email
+    tier: 3
+    requires:
+    - password
+    - email_otp_new
+    settings_url: https://myaccount.google.com/recovery/email
+    recipe: null
+    confirmation_patterns:
+    - (?i)recovery email
+    doc_url: https://support.google.com/accounts/
+- service:
+    id: college_workspace
+    name: College Workspace
+    domains:
+    - example.edu
+    category: identity
+    modelled: true
+    doc_url: https://example.edu/account-help
+  verified_at: 2026-10-17
+  methods:
+  - id: login_password
+    kind: login
+    label: Login password
+    needs_roles: []
+    needs_password: true
+    doc_url: https://example.edu/account-help
+  change: []
+- service:
+    id: notion
+    name: Notion
+    domains:
+    - notion.so
+    category: productivity
+    modelled: true
+    doc_url: https://notion.so
+  verified_at: 2026-10-17
+  methods:
+  - id: login_email_code
+    kind: login
+    label: Login email code
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://notion.so
+  change:
+  - root_kind: email
+    tier: 1
+    requires:
+    - email_otp_new
+    settings_url: https://notion.so
+    recipe: null
+    confirmation_patterns:
+    - (?i)email
+    doc_url: https://notion.so
+- service:
+    id: spotify
+    name: Spotify
+    domains:
+    - spotify.com
+    category: entertainment
+    modelled: true
+    doc_url: https://spotify.com
+  verified_at: 2026-10-17
+  methods:
+  - id: reset_email
+    kind: reset
+    label: Reset email
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://spotify.com
+  change: []
+- service:
+    id: x
+    name: X
+    domains:
+    - x.com
+    category: social
+    modelled: true
+    doc_url: https://x.com
+  verified_at: 2026-10-17
+  methods:
+  - id: reset_email
+    kind: reset
+    label: Reset email
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://x.com
+  - id: reset_phone
+    kind: reset
+    label: Reset phone
+    needs_roles:
+    - login_phone
+    needs_password: false
+    doc_url: https://x.com
+  change:
+  - root_kind: phone
+    tier: 2
+    requires:
+    - new_otp
+    settings_url: https://x.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)phone
+    doc_url: https://x.com
+- service:
+    id: amazon_in
+    name: Amazon India
+    domains:
+    - amazon.in
+    category: shopping
+    modelled: true
+    doc_url: https://amazon.in
+  verified_at: 2026-10-17
+  methods:
+  - id: login_phone_otp
+    kind: login
+    label: Login phone otp
+    needs_roles:
+    - login_phone
+    needs_password: false
+    doc_url: https://amazon.in
+  - id: reset_email
+    kind: reset
+    label: Reset email
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://amazon.in
+  change:
+  - root_kind: phone
+    tier: 2
+    requires:
+    - new_otp
+    settings_url: https://amazon.in
+    recipe: null
+    confirmation_patterns:
+    - (?i)phone
+    doc_url: https://amazon.in
+- service:
+    id: swiggy
+    name: Swiggy
+    domains:
+    - swiggy.com
+    category: delivery
+    modelled: true
+    doc_url: https://swiggy.com
+  verified_at: 2026-10-17
+  methods:
+  - id: login_phone_otp
+    kind: login
+    label: Login phone otp
+    needs_roles:
+    - login_phone
+    needs_password: false
+    doc_url: https://swiggy.com
+  change:
+  - root_kind: phone
+    tier: 3
+    requires:
+    - new_otp
+    settings_url: https://swiggy.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)phone
+    doc_url: https://swiggy.com
+- service:
+    id: zomato
+    name: Zomato
+    domains:
+    - zomato.com
+    category: delivery
+    modelled: true
+    doc_url: https://zomato.com
+  verified_at: 2026-10-17
+  methods:
+  - id: login_phone_otp
+    kind: login
+    label: Login phone otp
+    needs_roles:
+    - login_phone
+    needs_password: false
+    doc_url: https://zomato.com
+  change:
+  - root_kind: phone
+    tier: 3
+    requires:
+    - new_otp
+    settings_url: https://zomato.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)phone
+    doc_url: https://zomato.com
+- service:
+    id: paypal
+    name: PayPal
+    domains:
+    - paypal.com
+    category: payments
+    modelled: true
+    doc_url: https://paypal.com
+  verified_at: 2026-10-17
+  methods:
+  - id: reset_email_sms
+    kind: reset
+    label: Reset email sms
+    needs_roles:
+    - login_email
+    - sms_2fa
+    needs_password: false
+    doc_url: https://paypal.com
+  change:
+  - root_kind: phone
+    tier: 2
+    requires:
+    - new_otp
+    settings_url: https://paypal.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)phone
+    doc_url: https://paypal.com
+- service:
+    id: dropbox
+    name: Dropbox
+    domains:
+    - dropbox.com
+    category: storage
+    modelled: true
+    doc_url: https://dropbox.com
+  verified_at: 2026-10-17
+  methods:
+  - id: reset_email_then_sms
+    kind: reset
+    label: Reset email then sms
+    needs_roles:
+    - login_email
+    - sms_2fa
+    needs_password: false
+    doc_url: https://dropbox.com
+  - id: login_sms
+    kind: login
+    label: Login sms
+    needs_roles:
+    - sms_2fa
+    needs_password: true
+    doc_url: https://dropbox.com
+  change:
+  - root_kind: phone
+    tier: 2
+    requires:
+    - new_otp
+    settings_url: https://dropbox.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)phone
+    doc_url: https://dropbox.com
+- service:
+    id: github
+    name: GitHub
+    domains:
+    - github.com
+    category: development
+    modelled: true
+    doc_url: https://docs.github.com/en/authentication
+  verified_at: 2026-10-17
+  methods:
+  - id: reset_email_then_totp
+    kind: reset
+    label: Reset email then totp
+    needs_roles:
+    - login_email
+    - totp_device
+    needs_password: false
+    doc_url: https://docs.github.com/en/authentication
+  - id: login_totp
+    kind: login
+    label: Login totp
+    needs_roles:
+    - totp_device
+    needs_password: true
+    doc_url: https://docs.github.com/en/authentication
+  change: []
+- service:
+    id: linkedin
+    name: LinkedIn
+    domains:
+    - linkedin.com
+    category: social
+    modelled: true
+    doc_url: https://linkedin.com
+  verified_at: 2026-10-17
+  methods:
+  - id: reset_email
+    kind: reset
+    label: Reset email
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://linkedin.com
+  - id: login_phone_otp
+    kind: login
+    label: Login phone otp
+    needs_roles:
+    - login_phone
+    needs_password: false
+    doc_url: https://linkedin.com
+  change: []
+- service:
+    id: figma
+    name: Figma
+    domains:
+    - figma.com
+    category: design
+    modelled: true
+    doc_url: https://figma.com
+  verified_at: 2026-10-17
+  methods:
+  - id: login_email_code
+    kind: login
+    label: Login email code
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://figma.com
+  change:
+  - root_kind: email
+    tier: 1
+    requires:
+    - email_otp_new
+    settings_url: https://figma.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)email
+    doc_url: https://figma.com
+- service:
+    id: canva
+    name: Canva
+    domains:
+    - canva.com
+    category: design
+    modelled: true
+    doc_url: https://canva.com
+  verified_at: 2026-10-17
+  methods:
+  - id: login_email_code
+    kind: login
+    label: Login email code
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://canva.com
+  change:
+  - root_kind: email
+    tier: 1
+    requires:
+    - email_otp_new
+    settings_url: https://canva.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)email
+    doc_url: https://canva.com
+- service:
+    id: coursera
+    name: Coursera
+    domains:
+    - coursera.org
+    category: education
+    modelled: true
+    doc_url: https://coursera.org
+  verified_at: 2026-10-17
+  methods:
+  - id: login_email_code
+    kind: login
+    label: Login email code
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://coursera.org
+  change:
+  - root_kind: email
+    tier: 1
+    requires:
+    - email_otp_new
+    settings_url: https://coursera.org
+    recipe: null
+    confirmation_patterns:
+    - (?i)email
+    doc_url: https://coursera.org
+- service:
+    id: microsoft
+    name: Microsoft
+    domains:
+    - microsoft.com
+    category: identity
+    modelled: true
+    doc_url: https://microsoft.com
+  verified_at: 2026-10-17
+  methods:
+  - id: login_email_code
+    kind: login
+    label: Login email code
+    needs_roles:
+    - login_email
+    needs_password: false
+    doc_url: https://microsoft.com
+  change:
+  - root_kind: email
+    tier: 2
+    requires:
+    - email_otp_new
+    settings_url: https://microsoft.com
+    recipe: null
+    confirmation_patterns:
+    - (?i)email
+    doc_url: https://microsoft.com
+- service:
+    id: splitwise
+    name: Splitwise
+    domains:
+    - splitwise.com
+    category: finance
+    modelled: false
+    doc_url: https://splitwise.com
+  verified_at: 2026-10-17
+  methods: []
+  change: []
+carriers:
+- id: jio_in
+  name: Jio
+  country: IN
+  reissue_after_days: 90
+  source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+- id: airtel_in
+  name: Airtel
+  country: IN
+  reissue_after_days: 90
+  source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+- id: vi_in
+  name: Vi
+  country: IN
+  reissue_after_days: 90
+  source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+- id: bsnl_in
+  name: BSNL
+  country: IN
+  reissue_after_days: 90
+  source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+- id: generic_us
+  name: Generic US carrier
+  country: US
+  reissue_after_days: 45
+  source_url: https://recyclednumbers.cs.princeton.edu/

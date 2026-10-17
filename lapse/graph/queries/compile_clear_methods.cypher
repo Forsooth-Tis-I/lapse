@@ -1,0 +1,1 @@
+MATCH (m:Method) DETACH DELETE m
