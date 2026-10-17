@@ -1,0 +1,11 @@
+From: Synthetic notice <lapse-fixture@twitter.com>
+To: Demo <demo@example.com>
+Date: Sat, 17 Oct 2026 12:00:00 +0000
+Message-ID: <synthetic-17@example.com>
+Subject: New login to X
+X-Lapse-Synthetic: true
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+We detected a new login to your account from a browser.

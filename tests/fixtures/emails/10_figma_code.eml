@@ -1,0 +1,11 @@
+From: Synthetic notice <lapse-fixture@figma.com>
+To: Demo <demo@example.edu>
+Date: Sat, 17 Oct 2026 12:00:00 +0000
+Message-ID: <synthetic-10@example.com>
+Subject: Your Figma login code
+X-Lapse-Synthetic: true
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Your login code is maple-river-forest. It expires in 10 minutes.

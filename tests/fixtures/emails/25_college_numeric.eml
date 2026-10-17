@@ -1,0 +1,12 @@
+From: Synthetic notice <lapse-fixture@example.edu>
+To: Demo <demo@example.edu>
+Date: Sat, 17 Oct 2026 12:00:00 +0000
+Message-ID: <synthetic-25@example.com>
+Subject: Student mailbox will be closed
+X-Lapse-Synthetic: true
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<html><style>.hidden {display:none}</style><body><p>Your student mailbox will=
+ be closed by 15/11/2026.</p></body></html>
