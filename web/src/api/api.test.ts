@@ -247,6 +247,19 @@ describe("demo API contract", () => {
 });
 
 describe("REST and SSE boundary", () => {
+  it("sends selected inbox root IDs when starting discovery and preserves the default request", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ started: true }) });
+    vi.stubGlobal("fetch", request);
+    const api = createRestApi("");
+    await api.runIngest(["email:reader@example.test"]);
+    expect(request).toHaveBeenLastCalledWith("/api/ingest/run", expect.objectContaining({
+      method: "POST",
+      body: '{"inboxes":["email:reader@example.test"]}',
+    }));
+    await api.runIngest();
+    expect(request).toHaveBeenLastCalledWith("/api/ingest/run", expect.objectContaining({ method: "POST", body: "{}" }));
+  });
+
   it("uses root_ids and parses the backend response", async () => {
     const request = vi
       .fn()

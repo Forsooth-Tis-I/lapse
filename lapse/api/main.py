@@ -28,10 +28,12 @@ from lapse.api.models import (
     ChatInput,
     GraphData,
     GraphStats,
+    IngestInput,
     OnboardingInput,
     OtpInput,
     PlanInput,
     ScenarioInput,
+    ScreenPointer,
 )
 from lapse.config import ROOT_DIR, settings
 from lapse.contracts import Change, ChangeStatus, Explanation, Plan, Root, ScenarioResult, ToolCallRecord
@@ -240,20 +242,28 @@ def screen(request: Request, uid: Uid):
         return {"url": None, "caption": "No screenshot yet.", "mock": False}
     if isinstance(path, bytes):
         path = path.decode()
-    name = Path(path).name
+    caption = "Latest executor screenshot"
+    if path.startswith("{"):
+        pointer = ScreenPointer.model_validate_json(path)
+        if not pointer.url.startswith("/api/screens/"):
+            raise HTTPException(404, "That screenshot is not available.")
+        name = pointer.url.removeprefix("/api/screens/")
+        caption = pointer.caption
+    else:
+        name = Path(path).name
     return {
         "url": str(request.url_for("screenshot", name=name)),
-        "caption": "Latest executor screenshot",
+        "caption": caption,
         "mock": False,
     }
 
 
-@app.get("/api/screens/{name}")
+@app.get("/api/screens/{name:path}")
 def screenshot(name: str):
     directory = (DATA_DIR / "screens").resolve()
     path = (directory / name).resolve()
     if (
-        path.parent != directory
+        not path.is_relative_to(directory)
         or not path.is_file()
         or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     ):
@@ -308,8 +318,8 @@ def onboard(body: OnboardingInput, uid: Uid):
 
 
 @app.post("/api/ingest/run", dependencies=[Depends(writable)])
-def ingest(uid: Uid):
-    jobs.enqueue(uid, "ingest_run", {})
+def ingest(uid: Uid, body: IngestInput | None = None):
+    jobs.enqueue(uid, "ingest_run", body.model_dump(exclude_none=True) if body else {})
     return {"started": True}
 
 

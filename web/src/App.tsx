@@ -33,6 +33,7 @@ import { PlanBoard } from "./components/PlanBoard";
 import { AgentPanel } from "./components/AgentPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { Onboarding } from "./components/Onboarding";
+import { LockoutSummary } from "./components/LockoutSummary";
 
 type Page = "graph" | "plan" | "agent" | "connect" | "chat";
 type Preset = "takeover" | "lockout" | "both";
@@ -668,11 +669,12 @@ export default function App() {
               </div>
               <section className="decision-summary" aria-label="How Lapse decided">
                 <strong>How Lapse decided</strong>
-                <span>Depth 1: {directCount} accounts depend directly on the selected roots. Full chain: {fullCount}.</span>
+                <span>Depth 1: {directCount} affected accounts. Full chain: {fullCount}.</span>
                 <span>{preset === "takeover"
                   ? "The chain continues through the mailbox recovered by the old phone."
                   : preset === "lockout" ? "Fresh sign-in requires a route that survives the mailbox closing."
                   : "Takeover and fresh sign-in lockout are evaluated separately, then accounts are counted once."}</span>
+                <LockoutSummary results={results} />
               </section>
               <div className="graph-bottom">
                 <span>

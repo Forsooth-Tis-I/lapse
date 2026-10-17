@@ -113,7 +113,7 @@ export function createRestApi(url = baseUrl): LapseApi {
         validated.data,
       );
     },
-    runIngest: () => request(endpoints.ingest, ingestRunSchema, {}),
+    runIngest: (inboxes) => request(endpoints.ingest, ingestRunSchema, inboxes ? { inboxes } : {}),
     subscribe: (onEvent, onError, onReconnect) => {
       const stream = new EventSource(`${origin}${endpoints.events}`);
       let opened = false;

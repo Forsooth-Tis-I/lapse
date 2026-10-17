@@ -74,6 +74,16 @@ export function Onboarding({
     let saved = false;
     try {
       const validated = onboardingRequestSchema.parse(payload);
+      const emails = validated.emails ?? [];
+      const inboxRootIds = validated.inboxes.map((credentials) => {
+        const address = credentials.username.trim().toLowerCase();
+        const existing = emails.find((email) => email.address.trim().toLowerCase() === address);
+        if (existing) return existing.id;
+        const root = { id: `email:${address}`, address, kind: "personal", status: "active" } satisfies NonNullable<typeof validated.emails>[number];
+        emails.push(root);
+        return root.id;
+      });
+      validated.emails = emails;
       try {
         setLink(await api.onboard(validated));
       } finally {
@@ -85,7 +95,7 @@ export function Onboarding({
       }
       saved = true;
       onConnected();
-      if (hasInbox) await api.runIngest();
+      if (inboxRootIds.length) await api.runIngest(inboxRootIds);
     } catch {
       setError(
         saved

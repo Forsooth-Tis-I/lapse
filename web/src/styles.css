@@ -2078,6 +2078,14 @@ td:nth-child(3) code {
   color: var(--muted);
 }
 .decision-summary strong { color: var(--ink); }
+.lockout-summary { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.lockout-summary > div { flex: 1 1 300px; display: grid; gap: 4px; }
+.lockout-summary span { line-height: 1.5; }
+.plan-risk-summary { display: flex; flex-wrap: wrap; gap: 14px 28px; margin: 16px 0; }
+.plan-risk-summary div { display: grid; gap: 4px; }
+.plan-risk-summary dt { color: var(--muted); font-size: 12px; }
+.plan-risk-summary dd { margin: 0; font-size: 14px; }
+.plan-risk-note { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .root-plan-form { display: flex; align-items: end; gap: 16px; margin-bottom: 24px; }
 .root-plan-form label { display: grid; gap: 8px; color: var(--muted); font-size: 13px; }
 .root-plan-form select { min-width: 300px; }

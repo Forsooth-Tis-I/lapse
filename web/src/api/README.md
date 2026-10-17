@@ -21,7 +21,7 @@ The singleton `api` implements `LapseApi`. Every REST response and SSE envelope/
 | GET `/api/agent/screen` | `{url:string\|null,caption:string,mock:boolean}` |
 | GET `/api/stats` | `{nodes:number,edges:number,last_query_ms:number}` |
 | POST `/api/onboarding` | `{inboxes:[{host,username,app_password}],phones:[{number,carrier,status:'retiring'\|'active',drop_at?}]}` → `{telegram_code,telegram_url}` |
-| POST `/api/ingest/run` | `{}` → `{started:boolean}` |
+| POST `/api/ingest/run` | `{inboxes?: string[]}` of Email root IDs → `{started:boolean}` |
 | GET `/api/events` | SSE `GraphEvent` envelopes |
 
 `root_ids` follows `ScenarioRequest` and the final Decisions, overriding the earlier singular `root_id` API table. A compound UI view runs takeover and lockout separately because their actor semantics differ; each request also supports multiple roots of the same kind.
@@ -54,11 +54,11 @@ Chat buttons use `open_web {path}`, `plan_root {root_id}`, or `approve_changes {
 
 Unknown accounts, such as Splitwise, are identified by `account.modelled=false`; their methods are not in the model. The web shows **unknown, not safe** without treating the explanation endpoint's 404 as a failed path lookup. Root mailbox bridges are displayed at the host account's next round, but never counted as affected accounts.
 
-Onboarding accepts `display_name`, email metadata, optional phone `id` and `country`, and devices in addition to inboxes/phones. The form permits persona-only submission, clears inbox credentials, and queues ingestion only when an inbox was supplied. No inbox credentials are fetched or persisted in browser storage.
+Onboarding accepts `display_name`, email metadata, optional phone `id` and `country`, and devices in addition to inboxes/phones. The form permits persona-only submission, clears inbox credentials, and queues ingestion only when an inbox was supplied. The form reuses matching email metadata or creates a personal root for supplied credentials, then queues only its ID. No inbox credentials are fetched or persisted in browser storage.
+
 ## Additive wave-2 fields
 
-The backend retains existing fields and adds optional display data. Consumers can adopt these without changing
-request shapes. This note does not change the web implementation.
+The web validates and renders the optional planner display fields without changing plan request shapes.
 
 - `Plan`: `takeover_before`, `takeover_after`, `lockout_before`, `lockout_after` are counts; `remaining_accounts`
   and `unknown_accounts` are string arrays; `note` is nullable text. Old stored plans default component counts
@@ -68,6 +68,7 @@ request shapes. This note does not change the web implementation.
 - `Change`: `roles` is an array of existing role values; `title` is nullable text. One step covers all listed
   roles for an account and old root. `role` remains available for older clients. `note` carries manual settings
   instructions or missing-procedure/unknown warnings. An older change without `roles` remains single-role.
+- `ScenarioResult` optionally carries `lost_now_accounts` and `recovery_lost_accounts` as `Reached[]`. The summary shows each reported tier separately. With older responses, fresh sign-in loss comes from `affected_accounts` and recovery loss is labelled not reported, never inferred as zero. Graph reach still uses the backend scenario fields.
 - Chat replies add `diagnostics`: `llm_tool_calls: string[]`, `llm_requests: number`, `fallback_used: boolean`,
   `guard_regenerated: boolean`, and optional `fallback_reason: string`. The existing `tool_calls` includes
   fallback calls. Diagnostics contain no provider response bodies or credentials.

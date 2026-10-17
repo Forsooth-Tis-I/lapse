@@ -26,6 +26,15 @@ class ChatInput(BaseModel):
     text: Nonempty
 
 
+class IngestInput(BaseModel):
+    inboxes: list[Nonempty] | None = Field(default=None, min_length=1)
+
+
+class ScreenPointer(BaseModel):
+    url: str
+    caption: str
+
+
 class InboxInput(BaseModel):
     host: Nonempty
     username: Nonempty

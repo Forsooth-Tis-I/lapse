@@ -95,6 +95,8 @@ export const scenarioResultSchema = z.object({
   actor: z.enum(["stranger", "user"]),
   rounds: z.number().int(),
   affected_accounts: z.array(reachedSchema),
+  recovery_lost_accounts: z.array(reachedSchema).optional(),
+  lost_now_accounts: z.array(reachedSchema).optional(),
   direct_accounts: z.array(z.string()),
   unknown_accounts: z.array(z.string()),
   total_accounts: z.number().int(),
@@ -116,20 +118,23 @@ export const explanationSchema = z.object({
   outcome: z.enum(["path", "not_affected", "not_in_graph"]),
   steps: z.array(pathStepSchema).default([]),
 });
+const useRoleSchema = z.enum([
+  "login_email",
+  "recovery_email",
+  "login_phone",
+  "recovery_phone",
+  "sms_2fa",
+  "totp_device",
+]);
 export const changeSchema = z.looseObject({
   id: z.string(),
   plan_id: z.string(),
   order: z.number().int(),
   account_id: z.string(),
   account_label: z.string(),
-  role: z.enum([
-    "login_email",
-    "recovery_email",
-    "login_phone",
-    "recovery_phone",
-    "sms_2fa",
-    "totp_device",
-  ]),
+  role: useRoleSchema,
+  roles: z.array(useRoleSchema).optional(),
+  title: z.string().nullable().optional(),
   from_root: z.string(),
   to_root: z.string().nullable(),
   tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
@@ -160,6 +165,13 @@ export const planSchema = z.looseObject({
   feasible: z.boolean(),
   exposure_before: z.number().int(),
   exposure_after: z.number().int(),
+  takeover_before: z.number().int().optional(),
+  takeover_after: z.number().int().optional(),
+  lockout_before: z.number().int().optional(),
+  lockout_after: z.number().int().optional(),
+  remaining_accounts: z.array(z.string()).optional(),
+  unknown_accounts: z.array(z.string()).optional(),
+  note: z.string().nullable().optional(),
   steps: z.array(changeSchema),
   created_at: datetime,
 });
@@ -391,7 +403,7 @@ export interface LapseApi {
   getScreen(): Promise<AgentScreen>;
   getStats(): Promise<GraphStats>;
   onboard(input: OnboardingRequest): Promise<OnboardingResult>;
-  runIngest(): Promise<{ started: boolean }>;
+  runIngest(inboxes?: string[]): Promise<{ started: boolean }>;
   subscribe(
     onEvent: (event: UiEvent) => void,
     onError?: (error: Error) => void,

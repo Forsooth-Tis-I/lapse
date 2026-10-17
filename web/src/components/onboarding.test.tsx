@@ -19,6 +19,48 @@ function submit() {
 const link = { telegram_code: "PAIR-123", telegram_url: "https://t.me/LapseAlfredBot?start=PAIR-123" };
 
 describe("onboarding persona and write-only inbox credentials", () => {
+  it("creates a personal email root for an inbox and queues that root", async () => {
+    const onboard = vi.spyOn(api, "onboard").mockResolvedValue(link);
+    const ingest = vi.spyOn(api, "runIngest").mockResolvedValue({ started: true });
+    render(<Onboarding progress={null} onConnected={() => {}} />);
+    fill("IMAP server", "imap.example.test");
+    fill("Email address", "Reader@Example.test");
+    fill("App password", "fictional-secret");
+    submit();
+    await waitFor(() => expect(ingest).toHaveBeenCalledWith(["email:reader@example.test"]));
+    expect(onboard).toHaveBeenCalledWith(expect.objectContaining({
+      emails: [{ id: "email:reader@example.test", address: "reader@example.test", kind: "personal", status: "active" }],
+    }));
+    expect(screen.getByLabelText("App password")).toHaveValue("");
+  });
+
+  it("reuses matching persona metadata and queues only the root with supplied credentials", async () => {
+    const onboard = vi.spyOn(api, "onboard").mockResolvedValue(link);
+    const ingest = vi.spyOn(api, "runIngest").mockResolvedValue({ started: true });
+    render(<Onboarding progress={null} onConnected={() => {}} />);
+    fill("IMAP server", "imap.college.test");
+    fill("Email address", "STUDENT@college.test");
+    fill("App password", "fictional-secret");
+    fireEvent.click(screen.getByText("Persona and email roots"));
+    fill("Persona email 1", "unconnected@example.test");
+    fireEvent.click(screen.getByRole("button", { name: "Add another email" }));
+    fill("Persona email 2", "student@college.test");
+    fill("Email kind 2", "edu");
+    fill("Email status 2", "closing");
+    fill("Hosted by service 2", "google");
+    fill("Closure date 2", "2026-12-31");
+    fill("Existing root ID 2, optional", "email_college");
+    submit();
+    await waitFor(() => expect(ingest).toHaveBeenCalledWith(["email_college"]));
+    expect(onboard).toHaveBeenCalledWith(expect.objectContaining({
+      emails: [
+        { id: "email:unconnected@example.test", address: "unconnected@example.test", kind: "personal", status: "active", hosted_by: undefined, closes_at: undefined },
+        { id: "email_college", address: "student@college.test", kind: "edu", status: "closing", hosted_by: "google", closes_at: "2026-12-31" },
+      ],
+    }));
+    expect(ingest).toHaveBeenCalledOnce();
+  });
+
   it("saves explicit email metadata and optional phones without an inbox or ingestion", async () => {
     const onboard = vi.spyOn(api, "onboard").mockResolvedValue(link);
     const ingest = vi.spyOn(api, "runIngest");

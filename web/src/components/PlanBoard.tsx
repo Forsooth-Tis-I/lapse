@@ -91,10 +91,11 @@ function ChangeCard({
             T{step.tier} · {tiers[step.tier]}
           </span>
         </div>
-        <p>
-          {step.note ||
-            `Move ${step.role.replaceAll("_", " ")} to your new contact.`}
+        <p>{step.title || `Move ${step.role.replaceAll("_", " ")} to your new contact.`}</p>
+        <p className="footnote">
+          Roles: {(step.roles?.length ? step.roles : [step.role]).map((role) => role.replaceAll("_", " ")).join(", ")}
         </p>
+        {step.note && <p>{step.note}</p>}
         <div className="exposure-line">
           <span>
             {step.exposure_removed} account
@@ -272,9 +273,29 @@ export function PlanBoard({
               <span>
                 {plan.steps.filter((s) => s.status === "done").length}/
                 {plan.steps.length} verified · {plan.exposure_before} →{" "}
-                {plan.exposure_after} affected
+                {plan.exposure_after} distinct accounts affected
               </span>
             </div>
+            <dl className="plan-risk-summary">
+              {(plan.takeover_before !== undefined || plan.takeover_after !== undefined) && <div>
+                <dt>Takeover</dt>
+                <dd>{plan.takeover_before ?? "Not reported"} → {plan.takeover_after ?? "Not reported"}</dd>
+              </div>}
+              {(plan.lockout_before !== undefined || plan.lockout_after !== undefined) && <div>
+                <dt>Lockout</dt>
+                <dd>{plan.lockout_before ?? "Not reported"} → {plan.lockout_after ?? "Not reported"}</dd>
+              </div>}
+              {plan.remaining_accounts && <div>
+                <dt>Still affected after this plan</dt>
+                <dd>{plan.remaining_accounts.map((id) => plan.steps.find((step) => step.account_id === id)?.account_label ?? id).join(", ") || "None under the methods we model"}</dd>
+              </div>}
+              {plan.unknown_accounts && <div>
+                <dt>Unknown, not safe</dt>
+                <dd>{plan.unknown_accounts.map((id) => plan.steps.find((step) => step.account_id === id)?.account_label ?? id).join(", ") || "None reported"}</dd>
+              </div>}
+            </dl>
+            <p className="plan-risk-note">The total counts each account once. Takeover and lockout can overlap, under the methods we model.</p>
+            {plan.note && <p className="plan-risk-note">{plan.note}</p>}
             <AdditionalDetails value={plan} known={planSchema.shape} />
             {!plan.feasible && (
               <p className="warning-note">

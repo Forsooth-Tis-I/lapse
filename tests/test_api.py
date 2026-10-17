@@ -302,6 +302,34 @@ def test_screen_absolute_url_file_and_path_escape(api):
     assert api.client.get("/api/screens/secret.txt").status_code == 404
 
 
+def test_screen_reads_executor_pointer_and_serves_nested_image(api):
+    directory = api.directory / "screens" / "demo"
+    directory.mkdir(parents=True)
+    image = b"\x89PNG\r\n\x1a\n"
+    (directory / "change-1.png").write_bytes(image)
+    api.redis.set("lapse:screen:demo", json.dumps({
+        "url": "/api/screens/demo/change-1.png", "caption": "Waiting for confirmation",
+    }))
+    response = api.client.get("/api/agent/screen")
+    assert response.json() == {
+        "url": "http://testserver/api/screens/demo/change-1.png",
+        "caption": "Waiting for confirmation", "mock": False,
+    }
+    assert api.client.get(response.json()["url"]).content == image
+    outside = api.directory / "private.png"
+    outside.write_bytes(b"private")
+    (directory / "escape.png").symlink_to(outside)
+    assert api.client.get("/api/screens/demo/escape.png").status_code == 404
+
+
+def test_ingest_queues_explicit_onboarding_roots(api):
+    response = api.client.post("/api/ingest/run", json={"inboxes": ["email:mail@example.com"]})
+    assert response.json() == {"started": True}
+    fields = api.redis.xrange("lapse:jobs")[0][1]
+    assert json.loads(fields["payload"]) == {"inboxes": ["email:mail@example.com"]}
+    assert api.client.post("/api/ingest/run", json={"inboxes": []}).status_code == 422
+
+
 def test_onboarding_encrypts_tenant_inboxes_and_translates_persona(api, monkeypatch):
     payload = {
         "inboxes": [
