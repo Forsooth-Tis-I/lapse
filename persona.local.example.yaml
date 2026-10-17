@@ -1,0 +1,31 @@
+# Copy to persona.local.yaml (gitignored) and fill in. This describes the demo identity's roots.
+# The agent uses it at onboarding; the web onboarding page can also edit it.
+display_name: "Demo persona"
+phones:
+  - id: phone_old
+    e164: "+91XXXXXXXXXX"      # the number being dropped
+    carrier: "Vi"              # Jio | Airtel | Vi | BSNL | other
+    country: IN
+    status: retiring           # active | retiring | inactive
+    drop_at: 2026-10-31        # when the SIM will be given up
+  - id: phone_new
+    e164: "+91XXXXXXXXXX"
+    carrier: "Jio"
+    country: IN
+    status: active
+emails:
+  - id: email_primary
+    address: "you.demo@gmail.com"
+    kind: personal
+    hosted_by: google
+  - id: email_college
+    address: "you.college.stand-in@gmail.com"   # stand-in for a college address
+    kind: edu
+    hosted_by: college_workspace
+    status: closing
+    closes_at: 2026-11-15                        # staged closure date (see docs/persona-setup.md)
+devices:
+  - id: device_phone
+    name: "Main phone"
+    kind: phone
+    status: active

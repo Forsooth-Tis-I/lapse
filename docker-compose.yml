@@ -1,0 +1,20 @@
+# Local stack. FalkorDB is pinned: `latest` currently points at the 4.22 line and may move.
+# Defaults in the image (1 s timeout, 10k row cap, 25 queued queries) are too tight, so they are overridden.
+services:
+  falkordb:
+    image: falkordb/falkordb:v4.22.1
+    container_name: lapse-falkordb
+    ports:
+      - "${FALKORDB_PORT:-6380}:6379"   # graph + redis pub/sub (6379 is taken locally)
+      - "3001:3000"                     # FalkorDB Browser at http://localhost:3001
+    environment:
+      FALKORDB_ARGS: "TIMEOUT_MAX 30000 TIMEOUT_DEFAULT 10000 RESULTSET_SIZE 100000 MAX_QUEUED_QUERIES 200"
+    volumes:
+      - ./data/falkordb:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  # App services (api, worker, bot, mcp, web) are added in WP10 (deploy). During development run them with `make api` etc.
