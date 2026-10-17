@@ -8,7 +8,12 @@ await mkdir(out, { recursive: true });
 const browser = await chromium.launch({headless: true});
 const page = await browser.newPage({viewport: {width: 1920, height: 1080}, deviceScaleFactor: 1});
 const errors = [];
+const apiOrigins = new Set();
 page.on('pageerror', error => errors.push(error.message));
+page.on('request', request => {
+  const url = new URL(request.url());
+  if (url.pathname.startsWith('/api/')) apiOrigins.add(url.origin);
+});
 const evidence = [];
 async function shot(name) {
   await page.screenshot({path: `${out}/${name}.png`});
@@ -23,6 +28,8 @@ try {
   await shot('graph-direct');
   const before = await page.locator('.map-workspace').boundingBox();
   await page.getByRole('button', {name: 'Full chain', exact: true}).click();
+  await expect(page.getByText('ROUND 1 / 3', {exact: true})).toBeVisible();
+  await expect(page.getByText('ROUND 2 / 3', {exact: true})).toBeVisible();
   await expect(page.getByText('ROUND 3 / 3', {exact: true})).toBeVisible();
   expect(await page.locator('.map-workspace').boundingBox()).toEqual(before);
   await shot('graph-full');
@@ -37,14 +44,32 @@ try {
   await shot('unknown-splitwise');
   await page.getByRole('button', {name: 'College email closes', exact: true}).click();
   await expect(page.getByText('0 affected accounts', {exact: true})).toBeVisible();
+  await expect(page.getByText('0 lost now', {exact: true})).toBeVisible();
+  await expect(page.getByText('Recovery loss not reported', {exact: true})).toBeVisible();
   await shot('graph-college');
   await page.getByRole('button', {name: 'Both', exact: true}).click();
   await expect(page.getByText('10 affected accounts', {exact: true})).toBeVisible();
   await shot('graph-both');
   await page.getByRole('button', {name: 'Plan the fix', exact: true}).first().click();
-  await expect(page.getByRole('heading', {name: 'Close the loose ends.'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Close the loose ends.'})).toBeVisible({timeout: 30000});
   await expect(page.locator('.plan-group')).toHaveCount(2);
+  await expect(page.getByText(/10 → 0 distinct accounts affected/)).toBeVisible();
+  const livePlans = await (await fetch(`${api}/api/plans`)).json();
+  const phonePlan = livePlans.filter(plan => plan.old_root === 'phone_old').sort((a,b) => b.created_at.localeCompare(a.created_at))[0];
+  expect(phonePlan.exposure_after).toBe(0);
+  for (const account of ['swiggy', 'zomato']) {
+    const step = phonePlan.steps.find(step => step.account_id === account);
+    expect(step.tier).toBe(3);
+    const card = page.locator('article').filter({has: page.getByRole('heading', {name: step.account_label, exact: true})});
+    await expect(card.getByText(step.note, {exact: true})).toBeVisible();
+  }
   await shot('plans');
+  const phoneGroup = page.locator('.plan-group').filter({hasText: '10 → 0 distinct accounts affected'});
+  await phoneGroup.evaluate(element => element.scrollIntoView({block: 'start'}));
+  await shot('plans-phone');
+  await page.getByRole('heading', {name: 'Zomato', exact: true}).scrollIntoViewIfNeeded();
+  await shot('plans-manual-steps');
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.getByLabel('Root to retire').selectOption('phone_old');
   await page.getByRole('button', {name: 'Plan this root', exact: true}).click();
   await expect(page.locator('.plan-group')).toHaveCount(2);
@@ -65,10 +90,17 @@ try {
   await expect(page.locator('.chat-message.assistant')).toHaveCount(1, {timeout: 150000});
   await expect(page.locator('.chat-tools button').first()).toBeVisible();
   await shot('chat');
+  await page.locator('.chat-actions').getByRole('button', {name: 'Show risk', exact: true}).click();
+  await expect(page.getByText('10 affected accounts', {exact: true})).toBeVisible();
+  await page.getByRole('button', {name: 'Chat with Lapse', exact: true}).click();
+  await page.locator('.chat-actions').getByRole('button', {name: 'Plan the fix', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Close the loose ends.'})).toBeVisible();
+  await page.getByRole('button', {name: 'Chat with Lapse', exact: true}).click();
   await page.locator('.chat-tools button').last().click();
   await expect(page.locator('.selected-trace')).toBeVisible();
   await shot('agent-trace');
   await page.getByRole('button', {name: 'Connections', exact: true}).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
   await shot('connections');
   await page.getByText('Persona and email roots', {exact: true}).click();
   await page.getByLabel('Display name', {exact: true}).fill('Fixture persona');
@@ -95,5 +127,5 @@ try {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await shot('connections-mobile');
   expect(errors).toEqual([]);
-  await writeFile(new URL('../docs/live-checks.json', import.meta.url), JSON.stringify({at: new Date().toISOString(), base, api, viewport:'1920x1080', errors, screenshots:evidence}, null, 2));
+  await writeFile(new URL('../docs/live-checks.json', import.meta.url), JSON.stringify({at: new Date().toISOString(), base, api, apiOrigins:[...apiOrigins], viewport:'1920x1080', errors, screenshots:evidence}, null, 2));
 } finally { await browser.close(); }

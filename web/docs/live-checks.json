@@ -1,7 +1,10 @@
 {
-  "at": "2026-10-17T14:44:34.695Z",
-  "base": "http://localhost:5174",
+  "at": "2026-10-17T16:10:17.900Z",
+  "base": "http://localhost:8082",
   "api": "http://localhost:8020",
+  "apiOrigins": [
+    "http://localhost:8082"
+  ],
   "viewport": "1920x1080",
   "errors": [],
   "screenshots": [
@@ -12,6 +15,8 @@
     "graph-college",
     "graph-both",
     "plans",
+    "plans-phone",
+    "plans-manual-steps",
     "plans-approved",
     "chat-working",
     "chat",

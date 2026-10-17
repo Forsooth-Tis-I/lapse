@@ -7,7 +7,7 @@ Shared graph models come from [lapse/contracts.py](../lapse/contracts.py).
 Dates use `YYYY-MM-DD`. Datetimes use ISO 8601 with a timezone. Enums use lowercase strings.
 The default user is `settings().uid`, configured with `LAPSE_UID`. `X-Lapse-Uid` overrides it per request.
 This header selects a tenant for local demos; it is not authentication. The current web client uses the default user,
-including its EventSource connection. CORS permits `http://localhost:5173`, GET and POST, and the
+including its EventSource connection. CORS permits `http://localhost:5173` and `http://localhost:5174`, GET and POST, and the
 `Content-Type` and `X-Lapse-Uid` headers.
 
 ## Routes
@@ -31,10 +31,10 @@ Redis connection failures return 503.
 | `POST /api/changes/{id}/otp` | `{code}`; nonempty string, at most 128 characters | Current `Change`; stores code transiently without changing status |
 | `GET /api/trace?since=<timestamp>` | Optional ISO datetime | `ToolCallRecord[]` |
 | `GET /api/agent/screen` | None | `{url: string|null, caption: string, mock: false}` |
-| `GET /api/screens/{name}` | Screenshot basename | Image from `data/screens`; PNG, JPEG, WebP, or GIF |
+| `GET /api/screens/{name:path}` | Relative screenshot path, including executor user directory | Image from `data/screens`; PNG, JPEG, WebP, or GIF |
 | `GET /api/stats` | None | `{nodes: integer, edges: integer, last_query_ms: number}` |
 | `POST /api/onboarding` | Inbox and persona fields below | `{telegram_code, telegram_url}` |
-| `POST /api/ingest/run` | `{}` | `{started: true}` after queuing `ingest_run` |
+| `POST /api/ingest/run` | `{}` or `{inboxes: string[]}` of Email root IDs | `{started: true}` after queuing `ingest_run` |
 | `POST /api/chat` | `{text}`; nonempty string | Agent reply `{text, buttons, tool_calls, diagnostics}` with channel `web` |
 | `GET /api/events` | None | SSE stream of complete `GraphEvent` envelopes |
 
@@ -134,7 +134,9 @@ as `ingest_run` and passes its user ID through pipeline and IMAP settings.
 Inbox credentials alone do not create Email roots. For the example above, also provide
 `"emails": [{"id": "email_primary", "address": "demo@example.com", "kind": "personal"}]`, or create that root
 before ingestion. The default job scans `email_primary` and `email_college`; configure roots and credentials
-for both or pass an explicit inbox list to the job. Inbox order does not assign primary or college semantics.
+for both or POST an explicit nonempty `inboxes` list of Email root IDs to `/api/ingest/run`. The web form
+reuses matching email metadata or creates a personal Email root for supplied credentials, then queues that
+root ID. Inbox order does not assign primary or college semantics.
 
 The response uses `https://t.me/<bot>?start=<code>`. `TELEGRAM_BOT_USERNAME` defaults to `LapseAlfredBot`.
 The code is stored in `lapse:tglink:<code>` for one hour. Binding consumes it once and maintains both user-to-chat
@@ -165,8 +167,10 @@ Payloads follow the web decoder:
 SSE emits heartbeat comments through `sse-starlette`. Redis pub/sub has no replay or event cursor; clients must
 re-fetch current state after reconnecting. Disconnect closes the subscription and Redis connection.
 
-`GET /api/agent/screen` reads the latest image path from `lapse:screen:<uid>` and returns an absolute API URL, so
-images resolve from the frontend origin. Without a path, `url` is null. Screenshot serving rejects path escapes,
+`GET /api/agent/screen` reads the executor JSON `{url, caption}` pointer from `lapse:screen:<uid>` and returns an
+absolute API URL. Legacy plain image paths remain supported. The web client resolves screenshot URLs through
+its configured API base, including a same-origin nginx proxy. Without a pointer, `url` is null. Screenshot
+serving accepts nested user directories and rejects path escapes,
 symlinks outside `data/screens`, missing files, and unsupported extensions. Image files are shared static assets
 by filename. UID selection applies to the latest-image pointer, not file authorization.
 

@@ -36,7 +36,7 @@ WEB_URL=http://localhost:5174 API_URL=http://localhost:8020 node scripts/verify-
 
 The headless check uses the real demo API, creates plans, approves pending T1–T3 steps, sends a chat question, saves fixture persona metadata, and captures every page at 1920×1080. It does not connect an inbox. Use only the demo workspace. `make fixture` replaces the shared demo graph; coordinate its use with other workers.
 
-`node scripts/verify-execution.mjs` separately stages a labelled `awaiting_otp` change, checks OTP relay and live SSE, then restores the original change. It does not run an executor. See [verification and remaining gaps](docs/verification.md).
+`node scripts/verify-execution.mjs` separately stages a labelled `awaiting_otp` change, checks OTP relay and live SSE, and captures a local test page through the real executor screenshot emitter. It restores the original change and screenshot pointer. Install the Python browser extra with `uv sync --extra browser` first. No external account action runs. See [verification and remaining gaps](docs/verification.md).
 
 ## Demo sequence
 
