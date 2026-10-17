@@ -7,8 +7,11 @@ from lapse.contracts import CarrierRule, ServicePolicy
 from lapse.graph.db import ensure_schema, policy_graph, run
 
 
-def write_policy_graph(policies: list[ServicePolicy], carriers: list[CarrierRule]) -> None:
-    g = policy_graph()
+def write_policy_graph(
+    policies: list[ServicePolicy], carriers: list[CarrierRule], *, g: Graph | None = None
+) -> None:
+    if g is None:
+        g = policy_graph()
     services, methods, changes = [], [], []
     for policy in policies:
         service_id = policy.service.id
@@ -43,10 +46,13 @@ def write_policy_graph(policies: list[ServicePolicy], carriers: list[CarrierRule
     run(g, "policy_carriers", {"carriers": [c.model_dump(mode="json") for c in carriers]}, write=True)
 
 
-def compile_user_graph(g: Graph, policies: list[ServicePolicy]) -> None:
+def compile_user_graph(g: Graph, policies: list[ServicePolicy], account_ids: list[str] | None = None) -> None:
+    if account_ids == []:
+        return
+    scope = {"all_accounts": account_ids is None, "account_ids": account_ids or []}
     by_service = {policy.service.id: policy for policy in policies}
     methods, needs = [], []
-    for row in run(g, "compile_accounts").rows:
+    for row in run(g, "compile_accounts", scope).rows:
         account = row["account"]
         policy = by_service.get(account["service_id"])
         if policy is None or not policy.service.modelled or not account.get("modelled", True):
@@ -56,6 +62,8 @@ def compile_user_graph(g: Graph, policies: list[ServicePolicy]) -> None:
             if use["root_id"] is not None:
                 roles[use["role"]].add(use["root_id"])
         for template in policy.methods:
+            if any(roles[role] for role in template.requires_absent_roles):
+                continue
             if not template.needs_roles and not template.needs_password:
                 raise ValueError(f"Zero-need method {template.id} must need a password")
             choices = [sorted(roles[role]) for role in template.needs_roles]
@@ -75,7 +83,7 @@ def compile_user_graph(g: Graph, policies: list[ServicePolicy]) -> None:
                     {"method_id": method_id, "node_id": root, "role": role.value}
                     for role, root in zip(template.needs_roles, roots, strict=True)
                 )
-    for row in run(g, "compile_mailboxes").rows:
+    for row in run(g, "compile_mailboxes", scope).rows:
         method_id = f"m:mailbox:{row['email_id']}"
         methods.append(
             {
@@ -91,8 +99,13 @@ def compile_user_graph(g: Graph, policies: list[ServicePolicy]) -> None:
             }
         )
         needs.append({"method_id": method_id, "node_id": row["account_id"], "role": "mailbox_account"})
-    run(g, "compile_clear_methods", write=True)
-    run(g, "compile_clear_enables", write=True)
+    targets = set(account_ids or [])
+    if account_ids is not None:
+        targets.update(row["target_id"] for row in run(g, "compile_targets", scope).rows)
+        targets.update(method["target_id"] for method in methods)
+    target_scope = {"all_accounts": account_ids is None, "target_ids": sorted(targets)}
+    run(g, "compile_clear_methods", scope, write=True)
+    run(g, "compile_clear_enables", target_scope, write=True)
     run(g, "compile_methods", {"methods": methods}, write=True)
     run(g, "compile_needs", {"needs": needs}, write=True)
-    run(g, "compile_enables", write=True)
+    run(g, "compile_enables", target_scope, write=True)

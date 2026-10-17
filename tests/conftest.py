@@ -24,7 +24,7 @@ def no_network(request, monkeypatch):
 
 @pytest.fixture
 def isolated_graph():
-    g = graph(f"lapse:test:{uuid4().hex}")
+    g = graph(f"lapse:test:wp2r2:{uuid4().hex}")
     try:
         yield g
     finally:
