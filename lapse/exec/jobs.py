@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
+from html import escape
 
 from lapse.contracts import Change, ChangeStatus, Root
-from lapse.exec.base import ExecContext, StepEmitter
+from lapse.exec.base import CONTACT_ROLES, ExecContext, StepEmitter, contact_value
 from lapse.exec.recipes import RECIPES
 from lapse.exec.recipes.dsl import BrowserExecutor
 from lapse.exec.t3_assisted import AssistedExecutor
@@ -55,17 +56,23 @@ async def handle_execute_change(uid: str, payload: dict, *, trace=None) -> dict:
         if candidate.can_run(change) and procedure.tier in {1, 2}:
             executor = candidate
     try:
-        emitter.emit("progress", f"Starting contact change for {policy.service.name}")
+        emitter.emit(
+            "progress",
+            f"On it, changing your <b>{escape(policy.service.name)}</b> {CONTACT_ROLES[change.role]} now…",
+        )
         confirmed = await executor.run(ctx)
         if confirmed:
             apply_change_done(uid, change.id, trace=trace)
-            emitter.emit("done", f"Confirmed: {policy.service.name} now uses {new_root.label}")
+            message = f"Done ✅ <b>{escape(policy.service.name)}</b> now uses {contact_value(new_root)}."
+            emitter.emit("done", message)
             from lapse.notify import notify
 
-            notify(uid, f"Confirmed: {policy.service.name} now uses {new_root.label}")
+            notify(uid, message)
     except (RuntimeError, ValueError, OSError, TimeoutError):
         emitter.emit(
-            "failed", "Execution stopped. Review the account settings before approving another attempt."
+            "failed",
+            f"I couldn't finish that change on <b>{escape(policy.service.name)}</b>. "
+            "Check your account settings before trying again.",
         )
         return {"change_id": change.id, "status": "failed"}
     finally:

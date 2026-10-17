@@ -58,6 +58,6 @@ RECIPE = Recipe(
         Goto(SETTINGS_URL),
         Expect("{new_value}"),
         Expect("{old_value}", absent=True),
-        Screenshot("Canva account email after migration"),
+        Screenshot("Your <b>Canva</b> email settings after the change"),
     ),
 )

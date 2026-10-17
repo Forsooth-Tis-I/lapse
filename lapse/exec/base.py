@@ -4,15 +4,34 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from html import escape, unescape
 from pathlib import Path
 from typing import Literal, Protocol
 
 from redis import Redis
 
 from lapse.config import ROOT_DIR, settings
-from lapse.contracts import Change, ChangeProcedure, ChangeStatus, ExecStep, Root, Service
+from lapse.contracts import Change, ChangeProcedure, ChangeStatus, ExecStep, Root, Service, UseRole
 from lapse.graph import db
 from lapse.graph.planner import update_change
+
+CONTACT_ROLES = {
+    UseRole.login_email: "email",
+    UseRole.recovery_email: "recovery email",
+    UseRole.login_phone: "phone number",
+    UseRole.recovery_phone: "recovery phone",
+    UseRole.sms_2fa: "2-Step phone",
+    UseRole.totp_device: "authenticator",
+}
+
+
+def contact_value(root: Root) -> str:
+    if root.kind == "phone":
+        suffix = root.last4 or (root.e164 or "")[-4:]
+        return escape("••" + suffix if suffix else "your phone number")
+    return escape(
+        root.address or root.name or (root.label if root.label != root.id else f"your {root.kind.value}")
+    )
 
 
 def redis_client():
@@ -58,6 +77,7 @@ class StepEmitter:
         from lapse.events import publish
         from lapse.notify import notify
 
+        plain_message = unescape(re.sub(r"</?b>", "", message))
         statuses = {
             "progress": ChangeStatus.running,
             "need_otp": ChangeStatus.awaiting_otp,
@@ -77,16 +97,18 @@ class StepEmitter:
                 return ExecStep(
                     change_id=self.change_id,
                     kind=kind,
-                    message=message,
+                    message=plain_message,
                     channel=channel,
                     url=url,
                     at=datetime.now(UTC),
                 )
-            update_change(self.uid, self.change_id, status=statuses[kind], note=message, trace=self.trace)
+            update_change(
+                self.uid, self.change_id, status=statuses[kind], note=plain_message, trace=self.trace
+            )
         step = ExecStep(
             change_id=self.change_id,
             kind=kind,
-            message=message,
+            message=plain_message,
             channel=channel,
             url=url,
             at=datetime.now(UTC),
@@ -94,8 +116,12 @@ class StepEmitter:
         publish(self.uid, "exec", step.model_dump(mode="json"))
         if kind in {"need_otp", "need_user"}:
             buttons = (
-                [{"label": "Open settings", "action": "open_url", "payload": {"url": url}}] if url else []
+                [{"label": "Open the link", "action": "open_url", "payload": {"url": url}}] if url else []
             )
+            if kind == "need_user":
+                buttons.append(
+                    {"label": "I did it", "action": "check_change", "payload": {"change_id": self.change_id}}
+                )
             notify(self.uid, message, buttons=buttons)
         return step
 
@@ -107,7 +133,10 @@ class StepEmitter:
         path = directory / f"{change}-{self.screen_number}.png"
         await save_screenshot(page, path)
         url = f"/api/screens/{uid}/{path.name}"
-        redis_client().set(f"lapse:screen:{self.uid}", json.dumps({"url": url, "caption": caption}))
+        redis_client().set(
+            f"lapse:screen:{self.uid}",
+            json.dumps({"url": url, "caption": unescape(re.sub(r"</?b>", "", caption))}),
+        )
         self.emit("screenshot", caption, url=url)
         return url
 

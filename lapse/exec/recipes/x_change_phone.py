@@ -46,6 +46,6 @@ RECIPE = Recipe(
         Goto(SETTINGS_URL),
         Expect("{new_value}"),
         Expect("{old_value}", absent=True),
-        Screenshot("X account phone after migration"),
+        Screenshot("Your <b>X</b> phone settings after the change"),
     ),
 )

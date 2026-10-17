@@ -1,8 +1,9 @@
 import json
 from datetime import UTC, datetime, time, timedelta
+from html import escape
 
 from lapse.contracts import Change
-from lapse.exec.base import ExecContext, redis_client
+from lapse.exec.base import CONTACT_ROLES, ExecContext, contact_value, redis_client
 from lapse.graph import db
 
 REMINDERS = "lapse:exec:reminders"
@@ -13,16 +14,20 @@ class OfflineExecutor:
         return change.tier == 4
 
     async def run(self, ctx: ExecContext) -> bool:
-        target = ctx.new_root.label if ctx.new_root else "remove the old contact"
+        action = (
+            f"change my {CONTACT_ROLES[ctx.change.role]} from {contact_value(ctx.old_root)} "
+            f"to {contact_value(ctx.new_root)}"
+            if ctx.new_root
+            else f"remove {contact_value(ctx.old_root)} as my {CONTACT_ROLES[ctx.change.role]}"
+        )
         text = (
-            f"Checklist for {ctx.service.name}:\n"
-            "1. Check the provider's official document requirements.\n"
-            "2. Bring identity proof, account details and access to the new contact.\n"
-            "3. Submit the contact-update form and keep the receipt.\n"
-            "4. Verify that the old contact is removed.\n\n"
-            f"Draft request: Please update the {ctx.change.role.value} on my account "
-            f"from {ctx.old_root.label} to {target}. Please confirm completion in writing.\n"
-            "Account reference: [fill in locally]. Name and signature: [fill in locally]."
+            f"You'll need to handle this with <b>{escape(ctx.service.name)}</b> directly.\n"
+            "1. Check which documents they need at the link below.\n"
+            "2. Bring your ID and account details. Make sure you can use your new phone or email.\n"
+            "3. Ask them to update your details, and keep the receipt.\n"
+            "4. Check that they removed your old phone or email.\n\n"
+            f"You can say: Please {action} and send me written confirmation.\n"
+            "Add your account number, name and signature to the form."
         )
         ctx.emitter.emit("need_user", text, url=ctx.procedure.doc_url)
         due = datetime.now(UTC) + timedelta(days=1)
@@ -44,7 +49,9 @@ def send_due_reminders(*, trace=None) -> int:
             redis.zrem(REMINDERS, member)
             continue
         notify(
-            uid, f"Reminder: complete the offline contact change for {rows[0]['change']['account_label']}."
+            uid,
+            f"A quick reminder to update your details with "
+            f"<b>{escape(rows[0]['change']['account_label'])}</b>.",
         )
         redis.zadd(REMINDERS, {member: (datetime.now(UTC) + timedelta(days=1)).timestamp()})
         sent += 1

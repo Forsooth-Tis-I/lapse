@@ -4,6 +4,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from html import escape
 from typing import Literal
 
 from lapse.contracts import Change, UseRole
@@ -132,8 +133,8 @@ async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
         raise ValueError("Browser recipes require complete contact values")
     since = datetime.now(UTC)
     try:
-        for number, step in enumerate(recipe.steps, 1):
-            ctx.emitter.emit("progress", f"{ctx.service.name}: step {number} of {len(recipe.steps)}")
+        for step in recipe.steps:
+            ctx.emitter.emit("progress", f"Still working on your <b>{escape(ctx.service.name)}</b> settings…")
             try:
                 match step:
                     case Goto():
@@ -170,7 +171,8 @@ async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
                         suffix = ctx.new_root.last4 or (ctx.new_root.e164 or "")[-4:]
                         ctx.emitter.emit(
                             "need_otp",
-                            f"Enter the SMS code for {ctx.service.name} in Telegram.",
+                            f"<b>{escape(ctx.service.name)}</b> sent a code to ••{escape(suffix)}. "
+                            "Reply with it here (you've got 5 min).",
                             channel=f"{channel}:••{suffix}",
                         )
                         code = await asyncio.to_thread(wait, ctx.uid, ctx.change.id, timeout_s=300)
@@ -185,7 +187,7 @@ async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
                     case Screenshot(caption):
                         await ctx.emitter.screenshot(page, caption)
                 if not isinstance(step, Screenshot):
-                    await ctx.emitter.screenshot(page, f"{ctx.service.name}: step {number}")
+                    await ctx.emitter.screenshot(page, f"Your <b>{escape(ctx.service.name)}</b> settings")
             except Error:
                 raise SelectorFailure("The account page no longer matches this recipe") from None
         return recipe.confirmed
@@ -214,7 +216,11 @@ class BrowserExecutor:
                 except SelectorFailure:
                     if self.recipe.validated:
                         raise
-                    await ctx.emitter.screenshot(page, "Automation paused; finish this change in settings")
+                    await ctx.emitter.screenshot(
+                        page,
+                        f"That didn't work on <b>{escape(ctx.service.name)}</b>'s side. "
+                        "I'll give you the link to finish it yourself.",
+                    )
                     return await AssistedExecutor().run(ctx, url=self.recipe.settings_url)
         except MissingProfile:
             return await AssistedExecutor().run(ctx, url=self.recipe.settings_url)

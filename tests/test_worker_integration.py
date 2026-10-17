@@ -87,7 +87,7 @@ async def test_executor_events_and_notifications_reach_bot(monkeypatch):
         actions, "get_change", lambda uid, change_id: SimpleNamespace(id=change_id, account_label="X")
     )
     bot = SimpleNamespace(send_message=AsyncMock())
-    consumer = runtime.BotRuntime(None)
+    consumer = runtime.BotRuntime(fakeredis.FakeAsyncRedis(decode_responses=True))
     emitter = base.StepEmitter("test_worker", "change-1")
     with redis.pubsub() as pubsub:
         pubsub.psubscribe("lapse:events:*", "lapse:notify:*")

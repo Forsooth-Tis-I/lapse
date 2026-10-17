@@ -14,6 +14,7 @@ from lapse.contracts import (
     Root,
     Service,
     ServicePolicy,
+    UseRole,
 )
 from lapse.exec import base, jobs, t4_offline, verify
 from lapse.exec.base import ExecContext, StepEmitter
@@ -161,7 +162,12 @@ async def test_assisted_waits_for_user_with_exact_settings_link(execution):
     assert uid == "demo"
     assert "demo@example.edu" in message and "demo@example.com" in message
     assert buttons == [
-        {"label": "Open settings", "action": "open_url", "payload": {"url": "https://www.notion.so/settings"}}
+        {
+            "label": "Open the link",
+            "action": "open_url",
+            "payload": {"url": "https://www.notion.so/settings"},
+        },
+        {"label": "I did it", "action": "check_change", "payload": {"change_id": ctx.change.id}},
     ]
     assert execution.events[0][2]["kind"] == "need_user"
     assert execution.applied == []
@@ -199,10 +205,10 @@ async def test_offline_drafts_checklist_and_schedules_deadline_reminder(executio
     assert await OfflineExecutor().run(ctx) is False
     assert row["change"]["status"] == "awaiting_user"
     message = execution.notifications[0][1]
-    assert "Checklist for Notion" in message
-    assert "Draft request: Please update the login_email" in message
+    assert "handle this with <b>Notion</b> directly" in message
+    assert "You can say: Please change my email" in message
     assert "from demo@example.edu to demo@example.com" in message
-    assert "[fill in locally]" in message
+    assert "Add your account number, name and signature" in message
     due = datetime(2026, 10, 18, 9, tzinfo=UTC).timestamp()
     assert execution.redis.members == {json.dumps(["demo", "change-1"]): due}
     assert execution.applied == []
@@ -216,7 +222,7 @@ def test_reminders_send_only_for_pending_changes(execution):
     before = datetime.now(UTC)
     assert t4_offline.send_due_reminders() == 1
     assert execution.notifications == [
-        ("demo", "Reminder: complete the offline contact change for Notion.", None)
+        ("demo", "A quick reminder to update your details with <b>Notion</b>.", None)
     ]
     assert list(execution.redis.members) == [json.dumps(["demo", "awaiting_user"])]
     assert next(iter(execution.redis.members.values())) >= (before + timedelta(days=1)).timestamp()
@@ -284,7 +290,7 @@ async def test_job_falls_back_to_assisted_for_unsupported_recipe(execution, monk
         "change_id": "change-1",
         "status": "awaiting_user",
     }
-    assert "Open Notion settings" in execution.notifications[0][1]
+    assert "Open <b>Notion</b> settings" in execution.notifications[0][1]
 
 
 async def test_job_confirmed_recipe_applies_change_and_notifies(execution, monkeypatch):
@@ -299,7 +305,7 @@ async def test_job_confirmed_recipe_applies_change_and_notifies(execution, monke
         "status": "done",
     }
     assert execution.applied == [("demo", "change-1", None, "trace")]
-    assert execution.notifications == [("demo", "Confirmed: Notion now uses demo@example.com", None)]
+    assert execution.notifications == [("demo", "Done ✅ <b>Notion</b> now uses demo@example.com.", None)]
 
 
 @pytest.mark.parametrize("error", [RuntimeError, ValueError, OSError, TimeoutError])
@@ -432,7 +438,7 @@ def test_verify_pending_applies_matching_evidence_to_exact_change(execution):
     assert execution.applied == [("demo", "change-match", "23_email_change.eml", "verify-trace")]
     assert execution.rows["change-other"]["change"]["status"] == "awaiting_user"
     assert execution.rows["change-no-evidence"]["change"]["status"] == "awaiting_user"
-    assert execution.notifications == [("demo", "Confirmed: Figma now uses demo@example.com", None)]
+    assert execution.notifications == [("demo", "Done ✅ <b>Figma</b> now uses demo@example.com.", None)]
 
 
 def test_verify_pending_requires_resolved_replacement_root(execution):
@@ -483,3 +489,44 @@ async def test_assisted_dispatch_uses_recipe_link_when_policy_link_is_absent(exe
     execution.add(ctx)
     assert (await jobs.handle_execute_change("demo", {"change_id": "change-1"}))["status"] == "awaiting_user"
     assert execution.notifications[0][2][0]["payload"]["url"] == "https://www.notion.so/home"
+
+
+async def test_assisted_phone_copy_masks_number_and_explains_role(execution):
+    ctx = context(role="sms_2fa")
+    ctx.old_root = Root(id="phone_old", kind="phone", label="phone_old", last4="9810")
+    ctx.new_root = Root(id="phone_new", kind="phone", label="phone_new", e164="+919999006029")
+    ctx.service.name = "A&B"
+    execution.add(ctx)
+    await AssistedExecutor().run(ctx)
+    assert execution.notifications[0][1] == (
+        "Open <b>A&amp;B</b> settings and change your 2-Step phone from ••9810 to ••6029. "
+        "I'll check your email for confirmation and tick it off once it's changed."
+    )
+
+
+async def test_assisted_removal_copy_does_not_offer_a_replacement(execution):
+    ctx = context()
+    ctx.new_root = None
+    execution.add(ctx)
+    await AssistedExecutor().run(ctx)
+    assert execution.notifications[0][1] == (
+        "Open <b>Notion</b> settings and remove demo@example.edu as your email. "
+        "I'll check your email for confirmation and tick it off once it's changed."
+    )
+
+
+async def test_assisted_instructions_include_both_phone_roles(execution):
+    ctx = context()
+    ctx.change.role = UseRole.recovery_phone
+    ctx.change.roles = [UseRole.recovery_phone, UseRole.sms_2fa]
+    execution.add(ctx)
+    await AssistedExecutor().run(ctx)
+    assert "recovery phone and 2-Step phone" in execution.notifications[0][1]
+
+
+def test_web_execution_text_is_plain_while_notification_keeps_bold(execution):
+    ctx = context()
+    execution.add(ctx)
+    ctx.emitter.emit("need_user", "Open <b>Notion</b> settings &amp; change your email.")
+    assert execution.events[0][2]["message"] == "Open Notion settings & change your email."
+    assert execution.notifications[0][1] == "Open <b>Notion</b> settings &amp; change your email."

@@ -227,8 +227,8 @@ async def test_status_roots_open_plans_signals_and_deadlines(harness, monkeypatc
     )
     await h.runtime.status(h.update, h.context)
     assert "Old &amp; phone" in last_text(h)
-    assert "4 steps left · due 2026-10-31" in last_text(h)
-    assert "Check &lt;phone&gt; · due 2026-10-30" in last_text(h)
+    assert "4 steps left before Oct 31" in last_text(h)
+    assert "Check &lt;phone&gt; by Oct 30" in last_text(h)
 
 
 async def test_unlinked_status_never_reads_graph(harness, monkeypatch):
@@ -260,8 +260,9 @@ async def test_risk_selects_kind_for_retiring_roots(harness, monkeypatch, scenar
         ("takeover", ["old"]),
         ("lockout", ["college"]),
     ]
-    assert "Directly: 1 accounts · Through other accounts: 2 more · Unknown: 1" in last_text(h)
-    assert "unknown, not safe" in last_text(h)
+    assert len(h.bot.sent) == 1
+    assert "3 of your accounts" in last_text(h)
+    assert "can&#x27;t promise" in last_text(h)
 
 
 async def test_buttons_short_storage_bound_to_user_and_chat(harness):
@@ -322,7 +323,7 @@ async def test_approval_mints_on_click_consumes_once_then_updates_and_enqueues(h
         ("update", "u", "c1", "approved"),
         ("enqueue", "u", "execute_change", {"change_id": "c1"}),
     ]
-    assert "Account &lt;1&gt; · T1 auto" in h.update.effective_message.edits[0]["text"]
+    assert "handle <b>Account &lt;1&gt;</b> now" in h.update.effective_message.edits[0]["text"]
     await h.runtime.callback(h.update, h.context)
     assert len(sequence) == 4
 
@@ -336,19 +337,21 @@ async def test_invalid_approval_token_never_queues(harness):
 
 
 async def test_plan_callback_card_and_approval_excludes_tier_four(harness, monkeypatch, plan, scenario):
-    from lapse.bot.runtime import planner, scenarios
+    from lapse.bot.runtime import planner, scenarios, views
 
     h = harness
+    monkeypatch.setattr(views, "list_roots", lambda uid: [])
     plan_for_root = Mock(return_value=plan)
     monkeypatch.setattr(planner, "plan_for_root", plan_for_root)
     monkeypatch.setattr(scenarios, "run_scenario", lambda *args: scenario)
     await press(h, "plan_root", {"root_id": "old"})
     plan_for_root.assert_called_once_with("u", "old", None)
     text = h.update.effective_message.edits[0]["text"]
-    assert text.startswith("Directly:")
-    assert all(tier in text for tier in ("T1 auto", "T2 your code", "T3 you do it"))
-    assert "due 2026-10-30" in text
-    assert "+ 1 more steps" in text
+    assert text.startswith("Here&#x27;s how we fix")
+    assert "I can do this once you approve" in text
+    assert "Do it before Oct 30" in text
+    assert "4. Change the" in text
+    assert "T3" not in text
     records = [json.loads(value) for value in h.runtime.redis.values.values()]
     assert records == [{"action": "approve_changes", "payload": {"change_ids": ["c1", "c2", "c3"]}}]
 
@@ -368,7 +371,7 @@ async def test_dismiss_callback(harness, monkeypatch):
     monkeypatch.setattr(actions, "dismiss_signal", dismiss)
     await press(harness, "dismiss_signal", {"signal_id": "s"})
     dismiss.assert_called_once_with("u", "s")
-    assert harness.update.effective_message.edits[0]["text"] == "Signal dismissed."
+    assert harness.update.effective_message.edits[0]["text"] == "Got it. I’ve dismissed that reminder."
 
 
 async def test_slow_agent_typing_and_edits_working_message(harness):
@@ -390,7 +393,7 @@ async def test_slow_agent_typing_and_edits_working_message(harness):
     release.set()
     await task
     assert len(h.bot.sent) == 1
-    assert h.bot.sent[0][1].edits[0]["text"] == "&lt;b&gt;literal&lt;/b&gt; &amp; &quot;quoted&quot;"
+    assert h.bot.sent[0][1].edits[0]["text"] == "<b>literal</b> &amp; &quot;quoted&quot;"
     assert h.bot.sent[0][1].edits[0]["parse_mode"] == "HTML"
     assert h.bot.typing[0] == {"chat_id": 7, "action": "typing"}
 
@@ -438,13 +441,16 @@ async def test_need_otp_event_then_relay_and_deletion(harness, monkeypatch, plan
     h = harness
     monkeypatch.setattr(actions, "get_change", lambda *args: plan.steps[0])
     await h.runtime.deliver(h.bot, "lapse:events:u", event())
-    assert last_text(h) == "Account &lt;1&gt; sent a code to sms:••7788. Reply with it (5 min)."
+    assert (
+        last_text(h)
+        == "<b>Account &lt;1&gt;</b> sent a code to ••7788. Reply with it here (you’ve got 5 min)."
+    )
     assert h.runtime.pending[7][0].change_id == "c1"
     h.update.effective_message.text = "123456"
     await h.runtime.text(h.update, h.context)
     h.modules["otp"].submit.assert_called_once_with("u", "c1", "123456")
     assert h.bot.deleted == [{"chat_id": 7, "message_id": 42}]
-    assert last_text(h) == "Code passed to the agent"
+    assert last_text(h) == "Got it. I’m using that code now."
     h.modules["agent.agent"].respond.assert_not_called()
     assert not h.runtime.pending[7]
     assert "123456" not in json.dumps(h.runtime.redis.values) + repr(h.bot.sent) + caplog.text
@@ -468,7 +474,7 @@ async def test_unmatched_code_never_goes_to_agent(harness, state):
     h.modules["otp"].submit.assert_not_called()
     h.modules["agent.agent"].respond.assert_not_called()
     assert len(h.bot.deleted) == 1
-    assert "no active code request" in last_text(h)
+    assert "code request has expired" in last_text(h)
 
 
 async def test_numeric_reply_without_otp_request_reaches_agent(harness):
@@ -499,7 +505,7 @@ async def test_delete_failure_still_confirms_submission(harness):
     h.update.effective_message.text = "987654"
     await h.runtime.text(h.update, h.context)
     assert "Please delete it" in h.bot.sent[0][0]["text"]
-    assert last_text(h) == "Code passed to the agent"
+    assert last_text(h) == "Got it. I’m using that code now."
 
 
 async def test_otp_submit_failure_deletes_message_and_preserves_request(harness, caplog):
@@ -515,7 +521,7 @@ async def test_otp_submit_failure_deletes_message_and_preserves_request(harness,
     h.modules["otp"].submit.side_effect = None
     await h.runtime.text(h.update, h.context)
     h.modules["agent.agent"].respond.assert_not_called()
-    assert last_text(h) == "Code passed to the agent"
+    assert last_text(h) == "Got it. I’m using that code now."
 
 
 async def test_duplicate_code_during_submission_never_reaches_agent(harness):
@@ -552,7 +558,7 @@ async def test_simultaneous_otp_requests_do_not_overwrite_each_other(harness, mo
     h.update.effective_message.text = "111111"
     await h.runtime.text(h.update, h.context)
     assert h.runtime.pending[7][0].change_id == "c2"
-    assert last_text(h).startswith("Account &lt;2&gt; sent a code")
+    assert last_text(h).startswith("<b>Account &lt;2&gt;</b> sent a code")
 
 
 async def test_notify_delivery_buttons_and_unknown_binding(harness):
@@ -635,9 +641,9 @@ def test_default_uid_is_never_implicit_demo(monkeypatch):
         main.BotConfig.from_env()
 
 
-def test_plan_tier_four_badge(plan, scenario):
+def test_plan_explains_offline_step(plan, scenario):
     plan.steps = [plan.steps[3]]
-    assert "T4 in person" in cards.plan_card(plan, scenario)
+    assert "need to contact them" in cards.plan_card(plan, scenario)
 
 
 def test_application_registers_commands_callbacks_text_and_lifecycle():
@@ -704,3 +710,140 @@ async def test_risk_hint_sends_one_answer_for_selected_phone(harness, monkeypatc
     assert run.call_args.args[1].root_ids == ["old"]
     assert "9810" in last_text(harness)
     assert "college" not in last_text(harness).lower()
+
+
+@pytest.mark.parametrize("hint", ["6029", "••6029", "new number"])
+async def test_risk_kept_number_uses_real_resolver_without_running_risk(harness, monkeypatch, hint):
+    from lapse.agent import tools
+    from lapse.bot.runtime import scenarios, views
+
+    roots = [
+        Root(id="old", kind="phone", label="••9810 (Vi)", last4="9810", status="retiring"),
+        Root(id="new", kind="phone", label="••6029 (Jio)", last4="6029"),
+    ]
+    monkeypatch.setattr(views, "list_roots", lambda uid: roots)
+    monkeypatch.setattr(tools, "list_roots", lambda uid, **kw: roots)
+    monkeypatch.setattr(tools.db, "user_graph", lambda uid: None)
+    monkeypatch.setattr(tools.db, "run", lambda *a, **kw: SimpleNamespace(rows=[]))
+    run = Mock(side_effect=AssertionError("Kept numbers must not run a risk scenario"))
+    monkeypatch.setattr(scenarios, "run_scenario", run)
+    harness.context.args = hint.split()
+    await harness.runtime.risk(harness.update, harness.context)
+    assert len(harness.bot.sent) == 1
+    assert unescape(last_text(harness)) == "••6029 is the number you're keeping, so nothing's at risk there."
+    assert harness.bot.sent[0][0]["reply_markup"] is None
+
+
+@pytest.mark.parametrize("hint", ["phone", "not a known thing"])
+async def test_risk_ambiguous_or_absent_hint_offers_options(harness, monkeypatch, hint):
+    from lapse.agent import tools
+    from lapse.bot.runtime import scenarios, views
+
+    roots = [
+        Root(id="old", kind="phone", label="••9810 (Vi)", last4="9810", status="retiring"),
+        Root(id="new", kind="phone", label="••6029 (Jio)", last4="6029"),
+    ]
+    monkeypatch.setattr(views, "list_roots", lambda uid: roots)
+    monkeypatch.setattr(tools, "list_roots", lambda uid, **kw: roots)
+    monkeypatch.setattr(tools.db, "user_graph", lambda uid: None)
+    monkeypatch.setattr(tools.db, "run", lambda *a, **kw: SimpleNamespace(rows=[]))
+    monkeypatch.setattr(scenarios, "run_scenario", Mock(side_effect=AssertionError("Unresolved hint")))
+    harness.context.args = hint.split()
+    await harness.runtime.risk(harness.update, harness.context)
+    assert len(harness.bot.sent) == 1
+    assert (
+        unescape(last_text(harness))
+        == "Which one do you mean: your old Vi number (••9810) and your new number (••6029)?"
+    )
+
+
+async def test_risk_service_reads_only_that_account(harness, monkeypatch):
+    from lapse.agent import tools
+    from lapse.bot.runtime import views
+
+    monkeypatch.setattr(views, "list_roots", lambda uid: [])
+    monkeypatch.setattr(tools, "list_roots", lambda uid, **kw: [])
+    monkeypatch.setattr(tools.db, "user_graph", lambda uid: None)
+    monkeypatch.setattr(
+        tools.db,
+        "run",
+        lambda *a, **kw: SimpleNamespace(
+            rows=[
+                {
+                    "account": {"id": "splitwise", "display": "Splitwise", "modelled": False},
+                    "service": {"name": "Splitwise", "modelled": False},
+                }
+            ]
+        ),
+    )
+    info = Mock(
+        return_value={
+            "outcome": "not_in_graph",
+            "account": {"id": "splitwise", "display": "Splitwise", "modelled": False},
+        }
+    )
+    monkeypatch.setattr(tools, "dispatch", info)
+    harness.context.args = ["Splitwise"]
+    await harness.runtime.risk(harness.update, harness.context)
+    assert len(harness.bot.sent) == 1
+    assert "I don't know how <b>Splitwise</b> lets people back in, so I can't promise it's safe." == unescape(
+        last_text(harness)
+    )
+    info.assert_called_once_with("u", "account_info", {"account_id": "splitwise"})
+
+
+async def test_plan_button_uses_unique_kept_replacement(harness, monkeypatch, plan, scenario):
+    from lapse.bot.runtime import planner, scenarios, views
+
+    roots = [
+        Root(id="old", kind="phone", label="Old", status="retiring"),
+        Root(id="new", kind="phone", label="New", last4="6029"),
+    ]
+    monkeypatch.setattr(views, "list_roots", lambda uid: roots)
+    make_plan = Mock(return_value=plan)
+    monkeypatch.setattr(planner, "plan_for_root", make_plan)
+    monkeypatch.setattr(scenarios, "run_scenario", lambda *args: scenario)
+    await press(harness, "plan_root", {"root_id": "old"})
+    make_plan.assert_called_once_with("u", "old", "new")
+    assert "to ••6029" in harness.update.effective_message.edits[0]["text"]
+
+
+async def test_bold_spanning_messages_is_balanced_and_other_tags_are_literal(harness):
+    await harness.runtime.send(harness.bot, "u", 7, "<b>" + "x" * 2100 + "</b><script>alert(1)</script>")
+    assert [m["text"] for m, _ in harness.bot.sent] == [
+        "<b>" + "x" * 2000 + "</b>",
+        "<b>" + "x" * 100 + "</b>&lt;script&gt;alert(1)&lt;/script&gt;",
+    ]
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+async def test_i_did_it_checks_evidence_instead_of_trusting_tap(harness, monkeypatch, plan, confirmed):
+    check = Mock()
+    monkeypatch.setitem(sys.modules, "lapse.exec.verify", SimpleNamespace(verify_pending=check))
+    step = plan.steps[0].model_copy(update={"status": "done" if confirmed else "awaiting_user"})
+    monkeypatch.setattr(actions, "get_change", lambda *args: step)
+    await press(harness, "check_change", {"change_id": step.id})
+    check.assert_called_once_with("u")
+    text = unescape(harness.update.effective_message.edits[0]["text"])
+    assert ("I've confirmed" if confirmed else "haven't seen the confirmation") in text
+    harness.modules["jobs"].enqueue.assert_not_called()
+
+
+async def test_risk_known_service_answers_about_only_that_service(harness, monkeypatch, scenario):
+    from lapse.agent import tools
+    from lapse.bot.runtime import scenarios, views
+
+    roots = [Root(id="old", kind="phone", label="••9810 (Vi)", last4="9810", status="retiring")]
+    monkeypatch.setattr(views, "list_roots", lambda uid: roots)
+    monkeypatch.setattr(
+        tools, "resolve", lambda *a: {"candidates": [{"id": "a3", "label": "Figma", "kind": "account"}]}
+    )
+    monkeypatch.setattr(tools, "dispatch", lambda *a: {"account": {"id": "a3", "display": "Figma"}})
+    monkeypatch.setattr(scenarios, "run_scenario", lambda *a: scenario)
+    harness.context.args = ["Figma"]
+    await harness.runtime.risk(harness.update, harness.context)
+    assert len(harness.bot.sent) == 1
+    assert unescape(last_text(harness)) == (
+        "You're giving up your old Vi number (••9810). "
+        "Someone who gets it could get into your <b>Figma</b>. Want me to fix it?"
+    )

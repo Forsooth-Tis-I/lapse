@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
+from html import escape
 
 import httpx
 import tldextract
 
+from lapse.bot.cards import account_name, format_date, join_names, root_name
 from lapse.contracts import Root, ScenarioRequest, Signal, SignalKind
 from lapse.graph import db, planner, scenarios
 from lapse.policy import loader
@@ -78,8 +80,8 @@ def _notify(uid: str, signal: Signal, *, scenario_id=None, trace=None) -> None:
         uid,
         signal.detail,
         [
-            {"label": "Show risk", "action": "open_web", "payload": {"path": path}},
-            {"label": "Plan the fix", "action": "plan_root", "payload": {"root_id": signal.root_id}},
+            {"label": "Show me", "action": "open_web", "payload": {"path": path}},
+            {"label": "Fix it for me", "action": "plan_root", "payload": {"root_id": signal.root_id}},
             {"label": "Not mine", "action": "dismiss_signal", "payload": {"signal_id": signal.id}},
         ],
     )
@@ -113,38 +115,67 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
     def risk(root, kind):
         return scenarios.run_scenario(uid, ScenarioRequest(kind=kind, root_ids=[root.id]), trace=trace)
 
+    def names(accounts):
+        return join_names(account_name(account.label) for account in accounts)
+
     def caveat(result):
-        text = " Under the methods we model."
-        if result.unknown_accounts:
-            text += f" {len(result.unknown_accounts)} other accounts are unknown, not safe."
-        return text
+        count = len(result.unknown_accounts)
+        if not count:
+            return ""
+        sites = "another site" if count == 1 else f"{count} other sites"
+        return (
+            f" I don't know how {sites} lets you back in, so I can't promise it's safe."
+            if count == 1
+            else (f" I don't know how {sites} let you back in, so I can't promise they're safe.")
+        )
+
+    def when(value):
+        return format_date(value, today=now.date(), bold=True)
 
     for row in rows:
         root = Root.model_validate(row["root"])
         if root.kind == "phone" and root.status in {"retiring", "inactive"} and root.reissue_after:
             result = risk(root, "takeover")
-            full = len(result.affected_accounts)
-            indirect = full - len(result.direct_accounts)
-            label = "••" + root.last4 if root.last4 else root.label
+            label = root_name(root)
+            detail = (
+                f"{label[:1].upper() + label[1:]} could go to someone new from {when(root.reissue_after)}. "
+            )
+            if result.affected_accounts:
+                detail += f"They could use it to get into {names(result.affected_accounts)}."
+            else:
+                detail += "I haven't found any accounts they could get into with it."
             emit(
                 SignalKind.reissue_countdown,
                 root,
-                "Phone number can be reissued",
-                f"{label} can be reissued to a stranger from {root.reissue_after}. "
-                f"{full} accounts still use it ({indirect} through other accounts)." + caveat(result),
+                "Your old number could go to someone new",
+                detail + caveat(result),
                 root.reissue_after,
                 result.id,
             )
         if root.kind == "email" and root.status == "closing" and root.closes_at:
             result = risk(root, "lockout")
+            label = root_name(root)
+            detail = f"{label[:1].upper() + label[1:]} shuts down on {when(root.closes_at)}. "
+            if result.lost_now_accounts:
+                detail += (
+                    f"You'll lose access to {names(result.lost_now_accounts)}, so save anything you need. "
+                )
+            lost_now = {account.node_id for account in result.lost_now_accounts}
+            recovery_only = [
+                account for account in result.recovery_lost_accounts if account.node_id not in lost_now
+            ]
+            if recovery_only:
+                detail += (
+                    f"You could also lose your way back into {names(recovery_only)} "
+                    "if you forget your password. "
+                )
+            if not result.affected_accounts:
+                detail += "None of the accounts I've checked depend on it anymore. Save any email you want to keep. "
             emit(
                 SignalKind.closing_email,
                 root,
-                "Email account is closing",
-                f"{root.address or root.label} closes on {root.closes_at}; "
-                f"lost outright: {len(result.lost_now_accounts)} accounts; "
-                f"no way back if you forget the password: {len(result.recovery_lost_accounts)} accounts."
-                + caveat(result),
+                "Your email is shutting down",
+                detail.rstrip() + caveat(result),
                 root.closes_at,
                 result.id,
             )
@@ -164,9 +195,15 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
                 emit(
                     SignalKind.domain_expiry,
                     root,
-                    "Email domain expires",
-                    f"{domain} expires on {expires}; "
-                    f"{len(result.affected_accounts)} accounts could be reached." + caveat(result),
+                    "Your email domain is expiring",
+                    f"<b>{escape(domain)}</b> expires on {when(expires)}. "
+                    + (
+                        f"Someone who buys it could get into {names(result.affected_accounts)}. "
+                        if result.affected_accounts
+                        else "I haven't found any accounts someone could get into with it. "
+                    )
+                    + "Renew it before then if you're keeping it."
+                    + caveat(result),
                     expires,
                     result.id,
                 )
@@ -181,15 +218,15 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
             active_stale = root.status == "active" and old and old <= now - timedelta(days=180)
             if inactive_recent or active_stale:
                 reason = (
-                    "It appears in evidence from the last 30 days despite being marked inactive."
+                    "I saw this number used in the last 30 days, but thought you had stopped using it."
                     if inactive_recent
-                    else "It has not appeared in evidence for at least 180 days."
+                    else "I haven't seen this number used in at least 180 days."
                 )
                 emit(
                     SignalKind.stale_root,
                     root,
-                    "Check phone status",
-                    f"Do you still have {root.label}? {reason}",
+                    "Are you still using this number?",
+                    f"{reason} Do you still have {root_name(root)}?",
                 )
 
     for row in db.run(g, "signals_detector_devices", {"now": now.isoformat()}, trace=trace).rows:
@@ -199,9 +236,14 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
             SignalKind.new_device,
             root,
             "Check your authenticator",
-            f"A new device was observed. Did you move your authenticator app from {root.label}? "
-            f"Losing the old device would lock you out of {len(result.affected_accounts)} accounts."
-            + caveat(result),
+            "I spotted a new device."
+            + (
+                f" Without your old device, you could lose access to {names(result.affected_accounts)}."
+                if result.affected_accounts
+                else ""
+            )
+            + caveat(result)
+            + f" Did you move your authenticator app from {root_name(root)}?",
             scenario_id=result.id,
         )
 
@@ -228,21 +270,24 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
             for candidate in db.run(g, "planner_candidates", {"root_id": root.id}, trace=trace).rows
             if candidate["service_id"] in services
         }
-        detail = f"New evidence still references {root.label}."
+        detail = f"I found accounts still using {root_name(root)} after your change."
         if account_ids & plannable:
             plan = planner.plan_for_root(uid, root.id, row["new_root"], trace=trace)
             included = {step.account_id for step in plan.steps}
             count = len(account_ids & included)
-            detail += f" {count} missed accounts were added to follow-up plan {plan.id}."
+            detail += f" I added {count} {'account' if count == 1 else 'accounts'} to your list of fixes."
         else:
             included = set()
         manual = len(account_ids - included)
         if manual:
-            detail += f" {manual} accounts need manual review because no modelled change is available."
+            detail += (
+                f" You'll need to check {manual} {'account' if manual == 1 else 'accounts'} yourself. "
+                "I don't know how to change the details there yet."
+            )
         emit(
             SignalKind.missed_account,
             root,
-            "Accounts found after a completed change",
+            "Some accounts still use your old details",
             detail,
         )
     return signals

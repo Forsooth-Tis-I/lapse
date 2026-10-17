@@ -105,7 +105,10 @@ def world(monkeypatch):
             )
             return {"candidates": [candidate], "ambiguous": False}
         if name == "list_entities":
-            return {"roots": [state.root], "accounts": [{"id": "dropbox", "label": "Dropbox", "modelled": True}]}
+            return {
+                "roots": [state.root],
+                "accounts": [{"id": "dropbox", "label": "Dropbox", "modelled": True}],
+            }
         if name == "list_roots":
             return [state.root]
         if name in {"takeover_if_reassigned", "lockout_if_lost"}:
@@ -185,12 +188,13 @@ async def test_scripted_model_resolves_runs_scenario_and_returns_buttons(offline
         message(text),
     )
     reply = await agent.respond("alice", "risk of my old number", channel="web")
-    assert "directly: 1; through other accounts: 1 more" in reply["text"]
+    assert "Someone who gets this could get into your" in reply["text"]
+    assert "Through that account, they could get into" in reply["text"]
     assert len(offline.llm.requests) == 2
     assert reply["tool_calls"] == ["list_entities", "resolve", "takeover_if_reassigned"]
     assert reply["buttons"] == [
-        {"label": "Plan the fix", "action": "plan_root", "payload": {"root_id": "phone-old"}},
-        {"label": "Show risk", "action": "open_web", "payload": {"path": "/graph?scenario=scenario-1"}},
+        {"label": "Fix it for me", "action": "plan_root", "payload": {"root_id": "phone-old"}},
+        {"label": "Show me", "action": "open_web", "payload": {"path": "/graph?scenario=scenario-1"}},
     ]
     assert all(call[0] == "alice" and call[3] == "turn-0" for call in offline.calls)
     assert offline.saved[-1]["context"] == {
@@ -224,13 +228,16 @@ async def test_broken_model_falls_back_to_intents(offline, prompt, expected, con
         else message(calls=[("resolve", "{broken-json")])
     )
     reply = await agent.respond("alice", prompt)
-    assert reply["tool_calls"] == ["list_entities"] + (["resolve"] if failure == "malformed" else []) + expected
+    assert (
+        reply["tool_calls"] == ["list_entities"] + (["resolve"] if failure == "malformed" else []) + expected
+    )
     if failure == "malformed":
         (rejected,) = offline.traced
         assert rejected.name == "resolve"
         assert rejected.args == {"malformed_arguments": True}
         assert rejected.outcome == "error"
-    assert "under the methods we model" in reply["text"].lower()
+    assert "under the methods we model" not in reply["text"].lower()
+    assert "phone-old" not in reply["text"]
     assert "execute_change" not in reply["tool_calls"]
     assert offline.llm.closed
 
@@ -241,14 +248,14 @@ async def test_no_model_key_uses_fallback_and_mints_only_eligible_steps(offline)
     assert offline.minted == [("alice", ["change-1", "change-2", "change-3"])]
     assert reply["buttons"] == [
         {
-            "label": "Approve all T1–T3",
+            "label": "Approve all",
             "action": "approve_changes",
             "payload": {
                 "change_ids": ["change-1", "change-2", "change-3"],
                 "approval_token": "private-approval-token",
             },
         },
-        {"label": "Review in web", "action": "open_web", "payload": {"path": "/plans/plan-1"}},
+        {"label": "Show me", "action": "open_web", "payload": {"path": "/plans/plan-1"}},
     ]
     assert "private-approval-token" not in reply["text"]
     assert all("private-approval-token" not in turn["text"] for turn in offline.saved)
@@ -275,7 +282,9 @@ async def test_six_tool_calls_is_total_limit(offline):
 
 
 async def test_fallback_respects_tool_budget_already_spent(offline):
-    offline.llm = FakeLLM(*[message(calls=[("resolve", {"hint": "old number"})]) for _ in range(4)], RuntimeError("offline"))
+    offline.llm = FakeLLM(
+        *[message(calls=[("resolve", {"hint": "old number"})]) for _ in range(4)], RuntimeError("offline")
+    )
     reply = await agent.respond("alice", "risk of my old number")
     assert reply["tool_calls"] == ["list_entities"] + ["resolve"] * 5
     assert len(offline.calls) == 6
@@ -301,8 +310,8 @@ async def test_model_prose_cannot_override_grounded_template(offline):
     reply = await agent.respond("alice", "risk of my old number")
     assert len(offline.llm.requests) == 1
     assert "Spotify" not in reply["text"]
-    assert "directly: 1" in reply["text"]
-    assert "Gmail, Dropbox" in reply["text"]
+    assert "get into your <b>Gmail</b>" in reply["text"]
+    assert "<b>Gmail</b>" in reply["text"] and "<b>Dropbox</b>" in reply["text"]
     assert reply["tool_calls"] == ["list_entities", "takeover_if_reassigned"]
     assert reply["diagnostics"]["guard_regenerated"] is False
 
@@ -383,18 +392,18 @@ def test_trace_redacts_credentials_in_free_text_arguments(monkeypatch, field):
         "Under the methods we model, spotify is at risk.",
         "Under the methods we model, ••4321 is at risk.",
         "Under the methods we model, 4321 is at risk.",
-        "Dropbox is at risk.",
     ],
 )
-def test_guard_rejects_unseen_names_numbers_and_missing_scope(world, text):
+def test_guard_rejects_unseen_names_and_numbers(world, text):
     assert guard.grounded(text, [world.scenario]) is False
 
 
-def test_guard_accepts_known_entities_and_requires_unknown_wording(world):
-    assert guard.grounded("Under the methods we model, Gmail and Dropbox are at risk.", [world.scenario])
+def test_guard_accepts_grounded_names_without_stock_disclaimer(world):
+    assert guard.grounded("Your <b>Gmail</b> and <b>Dropbox</b> accounts are at risk.", [world.scenario])
+    assert guard.grounded("Dropbox is at risk.", [world.scenario])
     result = {"outcome": "not_in_graph", "message": "Account absent."}
-    assert not guard.grounded("Under the methods we model, this account is safe.", [result])
-    assert guard.grounded("Under the methods we model, this account is unknown, not safe.", [result])
+    assert not guard.grounded("Spotify is safe.", [result])
+    assert guard.grounded("I can't tell you whether it's safe.", [result])
 
 
 @pytest.mark.parametrize("prompt", ["risk of my old number", "approve all"])
@@ -426,7 +435,7 @@ async def test_mcp_transport_uses_real_client_session(offline, monkeypatch, prom
         assert offline.llm.requests == []
     else:
         assert reply["tool_calls"] == ["list_entities", "takeover_if_reassigned"]
-        assert "Gmail, Dropbox" in reply["text"]
+        assert "<b>Gmail</b>" in reply["text"] and "<b>Dropbox</b>" in reply["text"]
         assert len(offline.llm.requests) == 1
 
 
@@ -494,9 +503,10 @@ def test_template_keeps_takeover_when_model_also_checks_lockout(world):
     takeover = world.scenario
     lockout = {**takeover, "kind": "lockout", "lost_now_accounts": [], "recovery_lost_accounts": []}
     answer = guard.templated([takeover, lockout])
-    assert "takeover: directly: 1" in answer
-    assert "lost outright: 0" in answer
-    assert "no way back if you forget the password: 0" in answer
+    assert "get into your <b>Gmail</b>" in answer
+    assert "get into <b>Dropbox</b> too" in answer
+    assert "You can still sign in to your accounts" in answer
+    assert answer.count("Want me to fix it?") == 1
 
 
 def test_focus_drops_replacement_root_scenarios_before_answer_and_memory(world):
@@ -507,7 +517,9 @@ def test_focus_drops_replacement_root_scenarios_before_answer_and_memory(world):
 
 
 @pytest.mark.parametrize("prompt", ["approve", "approve all", "go ahead", "Go ahead!"])
-async def test_typed_approval_rereads_steps_and_mints_fresh_button_without_model(offline, monkeypatch, prompt):
+async def test_typed_approval_rereads_steps_and_mints_fresh_button_without_model(
+    offline, monkeypatch, prompt
+):
     offline.prior = [{"role": "assistant", "text": "Stale plan", "context": {"plan_id": "older-plan"}}]
     original = agent.dispatch
 
@@ -519,13 +531,12 @@ async def test_typed_approval_rereads_steps_and_mints_fresh_button_without_model
     monkeypatch.setattr(agent, "dispatch", dispatch)
     offline.llm = FakeLLM()
     first = await agent.respond("alice", prompt)
-    assert "Dropbox (T1); Dropbox (T2); Dropbox (T3)" in first["text"]
-    assert "Nothing has been approved by this message" in first["text"]
+    assert first["text"] == "Ready to update <b>Dropbox</b>. Tap <b>Approve all</b> to start."
     assert first["buttons"][0]["payload"]["change_ids"] == ["change-1", "change-2", "change-3"]
     offline.plan["steps"][0]["status"] = "done"
     second = await agent.respond("alice", prompt)
     assert second["tool_calls"] == ["plan_status"]
-    assert second["buttons"][0]["label"] == "Approve all T1–T3"
+    assert second["buttons"][0]["label"] == "Approve all"
     assert second["buttons"][0]["payload"]["change_ids"] == ["change-2", "change-3"]
     assert "Dropbox (T1)" not in second["text"]
     assert "(T4)" not in second["text"]
@@ -550,17 +561,23 @@ async def test_approve_finds_plan_without_history_and_handles_no_proposed_steps(
     for step in offline.plan["steps"]:
         step["status"] = "done"
     reply = await agent.respond("alice", "approve")
-    assert reply["text"] == "No proposed T1–T3 steps remain under the methods we model. Review the plan in web."
+    assert (
+        reply["text"] == "There's nothing left to approve. You can check your plan for anything still to do."
+    )
     assert [button["action"] for button in reply["buttons"]] == ["open_web"]
 
 
 async def test_approve_without_any_plan_explains_next_action(offline, monkeypatch):
-    monkeypatch.setattr(agent, "dispatch", lambda *args: {
-        "outcome": "memory", "message": "No stored plan has proposed steps. No changes were executed."
-    })
+    monkeypatch.setattr(
+        agent,
+        "dispatch",
+        lambda *args: {
+            "outcome": "memory",
+            "message": "No stored plan has proposed steps. No changes were executed.",
+        },
+    )
     reply = await agent.respond("alice", "go ahead")
-    assert "No stored plan has proposed steps" in reply["text"]
-    assert "Plan the fix first under the methods we model" in reply["text"]
+    assert reply["text"] == "There's no plan waiting for approval. Ask me to plan the fix first."
     assert reply["buttons"] == []
     assert offline.minted == []
 
@@ -568,7 +585,8 @@ async def test_approve_without_any_plan_explains_next_action(offline, monkeypatc
 async def test_one_model_selection_uses_catalog_and_reports_stage_timings(offline):
     offline.llm = FakeLLM(message(calls=[("takeover_if_reassigned", {"root_id": "phone-old"})]))
     reply = await agent.respond("alice", "someone takes my old number")
-    assert "directly: 1; through other accounts: 1 more" in reply["text"]
+    assert "Someone who gets this could get into your" in reply["text"]
+    assert "Through that account, they could get into" in reply["text"]
     assert reply["diagnostics"]["llm_requests"] == 1
     assert reply["diagnostics"]["llm_attempts"] == 1
     assert reply["diagnostics"]["fallback_used"] is False
@@ -601,8 +619,10 @@ async def test_slow_model_is_cancelled_and_falls_back_to_grounded_tools(offline,
     assert reply["diagnostics"]["llm_requests"] == 1
     assert reply["diagnostics"]["llm_ms"] > 0
     assert reply["tool_calls"] == ["list_entities", "resolve", "takeover_if_reassigned"]
-    assert "directly: 1; through other accounts: 1 more" in reply["text"]
-    assert "under the methods we model" in reply["text"].lower()
+    assert "Someone who gets this could get into your" in reply["text"]
+    assert "Through that account, they could get into" in reply["text"]
+    assert "under the methods we model" not in reply["text"].lower()
+    assert "phone-old" not in reply["text"]
 
 
 async def test_ambiguous_resolution_stops_before_scenario(offline, monkeypatch):
@@ -610,22 +630,32 @@ async def test_ambiguous_resolution_stops_before_scenario(offline, monkeypatch):
 
     def dispatch(uid, name, args):
         if name == "resolve":
-            return {"candidates": [offline.root, {"id": "phone-other", "label": "Other phone", "kind": "root"}],
-                    "ambiguous": True}
+            return {
+                "candidates": [offline.root, {"id": "phone-other", "label": "Other phone", "kind": "root"}],
+                "ambiguous": True,
+            }
         return original(uid, name, args)
 
     monkeypatch.setattr(agent, "dispatch", dispatch)
     offline.llm = FakeLLM(message(calls=[("resolve", {"hint": "phone"})]))
     reply = await agent.respond("alice", "what if someone gets my phone")
-    assert "Choose a matching root or account: ••4321, Other phone" in reply["text"]
+    assert "Do you mean ••4321 or Other phone?" in reply["text"]
     assert reply["tool_calls"] == ["list_entities", "resolve"]
     assert reply["buttons"] == []
 
 
 async def test_explanation_checks_lockout_without_another_model_request(offline, monkeypatch):
-    offline.prior = [{"role": "assistant", "text": "Prior takeover", "context": {
-        "scenario_id": "takeover-1", "root_id": "phone-old", "scenario_kind": "takeover",
-    }}]
+    offline.prior = [
+        {
+            "role": "assistant",
+            "text": "Prior takeover",
+            "context": {
+                "scenario_id": "takeover-1",
+                "root_id": "phone-old",
+                "scenario_kind": "takeover",
+            },
+        }
+    ]
     original = agent.dispatch
 
     def dispatch(uid, name, args):
@@ -637,9 +667,84 @@ async def test_explanation_checks_lockout_without_another_model_request(offline,
         return result
 
     monkeypatch.setattr(agent, "dispatch", dispatch)
-    offline.llm = FakeLLM(message(calls=[("explain", {"account_id": "dropbox", "scenario_id": "takeover-1"})]))
+    offline.llm = FakeLLM(
+        message(calls=[("explain", {"account_id": "dropbox", "scenario_id": "takeover-1"})])
+    )
     reply = await agent.respond("alice", "why is Dropbox at risk?")
-    assert "no way back if you forget the password" in reply["text"]
-    assert "Gmail to Dropbox through email recovery" in reply["text"]
+    assert (
+        reply["text"] == "You use <b>Gmail</b> to get back into <b>Dropbox</b> if you forget your password."
+    )
     assert reply["tool_calls"] == ["list_entities", "explain", "lockout_if_lost", "explain"]
     assert reply["diagnostics"]["llm_requests"] == 1
+
+
+@pytest.mark.parametrize("use_model", [False, True])
+async def test_kept_phone_risk_never_runs_scenario(offline, monkeypatch, use_model):
+    root = {"id": "phone-new", "label": "••6029", "kind": "phone", "status": "active", "last4": "6029"}
+    original = agent.dispatch
+
+    def dispatch(uid, name, args):
+        if name == "list_entities":
+            return {"roots": [root], "accounts": []}
+        if name == "resolve":
+            return {"candidates": [{**root, "kind": "root", "root_kind": "phone"}]}
+        if name == "list_roots":
+            return [root]
+        return original(uid, name, args)
+
+    monkeypatch.setattr(agent, "dispatch", dispatch)
+    if use_model:
+        offline.llm = FakeLLM(message(calls=[("takeover_if_reassigned", {"root_id": "phone-new"})]))
+    reply = await agent.respond("alice", "risk of 6029")
+    assert reply["text"] == "••6029 is the number you're keeping, so nothing's at risk there."
+    assert reply["buttons"] == []
+    assert "takeover_if_reassigned" not in reply["tool_calls"]
+    assert reply["diagnostics"]["llm_requests"] == int(use_model)
+
+
+async def test_full_scenario_uses_dates_and_familiar_names_without_second_model_request(offline, monkeypatch):
+    root = {
+        "id": "phone-old",
+        "label": "••4321 (Vi)",
+        "kind": "phone",
+        "status": "retiring",
+        "last4": "4321",
+        "drop_at": "2026-10-31",
+        "reissue_after": "2027-01-29",
+    }
+    original = agent.dispatch
+
+    def dispatch(uid, name, args):
+        if name == "list_roots":
+            return [root]
+        result = original(uid, name, args)
+        if name == "takeover_if_reassigned":
+            return {
+                **result,
+                "actor": "stranger",
+                "rounds": 2,
+                "total_accounts": 2,
+                "ms": 1.0,
+                "affected_accounts": [
+                    {**item, "node_type": "Account", "round": index}
+                    for index, item in enumerate(result["affected_accounts"], 1)
+                ],
+            }
+        return result
+
+    monkeypatch.setattr(agent, "dispatch", dispatch)
+    offline.llm = FakeLLM(message(calls=[("takeover_if_reassigned", {"root_id": "phone-old"})]))
+    reply = await agent.respond("alice", "someone gets my old number")
+    assert "your old Vi number (••4321)" in reply["text"]
+    assert "<b>Oct 31</b>" in reply["text"]
+    assert "90 days" in reply["text"]
+    assert "phone-old" not in reply["text"]
+    assert reply["tool_calls"] == ["list_entities", "takeover_if_reassigned", "list_roots"]
+    assert reply["diagnostics"]["llm_requests"] == 1
+
+
+async def test_web_reply_has_plain_text_and_telegram_has_bold_names(offline):
+    web = await agent.respond("alice", "risk of my old number", channel="web")
+    telegram = await agent.respond("alice", "risk of my old number")
+    assert "Gmail" in web["text"] and "<b>" not in web["text"]
+    assert "<b>Gmail</b>" in telegram["text"]

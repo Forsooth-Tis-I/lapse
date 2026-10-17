@@ -58,8 +58,8 @@ def test_reissue_uses_full_scenario_and_notifies_once(detector_graph):
     assert first[0].id == second[0].id
     assert first[0].at == second[0].at == NOW
     assert first[0].detail == (
-        "••4321 can be reissued to a stranger from 2027-01-01. "
-        "2 accounts still use it (1 through other accounts). Under the methods we model."
+        "Your old number (••4321) could go to someone new from <b>Jan 1</b> (in 76 days). "
+        "They could use it to get into <b>Direct</b> and <b>Indirect</b>."
     )
     assert [button["action"] for button in calls[0][2]] == ["open_web", "plan_root", "dismiss_signal"]
     assert g.ro_query("MATCH (:Signal)-[:ABOUT]->(:Root) RETURN count(*)").result_set == [[1]]
@@ -93,10 +93,10 @@ def test_closing_email_adopts_ingested_signal_and_uses_lockout(detector_graph):
     )
     result = detectors.run_detectors("test", now=NOW)
     assert result[0].id == "ingest-existing"
-    assert (
-        "student@example.test closes on 2026-12-01; lost outright: 2 accounts; "
-        "no way back if you forget the password: 2 accounts."
-    ) in result[0].detail
+    assert "Your email (student@example.test) shuts down on <b>Dec 1</b> (in 45 days)." in result[0].detail
+    assert "You'll lose access to <b>Host</b> and <b>App</b>" in result[0].detail
+    assert "if you forget your password" in result[0].detail
+    assert "<b>Password app</b>" in result[0].detail
     assert len(calls) == 1
     assert g.ro_query("MATCH (s:Signal) RETURN count(s)").result_set == [[1]]
 
@@ -206,7 +206,7 @@ def test_new_device_offers_old_authenticator_lockout(detector_graph):
     assert result[0].kind == "new_device"
     assert result[0].root_id == "old"
     assert "Did you move your authenticator app from Old phone?" in result[0].detail
-    assert "lock you out of 1 accounts" in result[0].detail
+    assert "lose access to <b>App</b>" in result[0].detail
     scenario_id = calls[0][2][0]["payload"]["path"].split("=")[1]
     scenario = scenarios.get_scenario("test", scenario_id)
     assert scenario.kind == "lockout"
@@ -252,7 +252,7 @@ def test_missed_account_creates_followup_once_and_includes_later_accounts(
     elif delivery == "failed":
 
         def fail_missed(uid, text, buttons):
-            if "follow-up plan" in text:
+            if "your list of fixes" in text:
                 raise RuntimeError("missed notification failed")
             notify(uid, text, buttons)
 
@@ -263,19 +263,19 @@ def test_missed_account_creates_followup_once_and_includes_later_accounts(
     else:
         result = detectors.run_detectors("test", now=NOW)
         signal = next(item for item in result if item.kind == "missed_account")
-        assert "1 missed accounts were added to follow-up plan" in signal.detail
+        assert "I added 1 account to your list of fixes." in signal.detail
     monkeypatch.setitem(sys.modules, "lapse.notify", module)
     monkeypatch.setattr(module, "notify", notify)
     assert g.ro_query("MATCH (p:Plan) RETURN count(p)").result_set == [[2]]
     assert g.ro_query("MATCH (c:Change {account_id: 'one'}) RETURN c.to_root").result_set == [["new"]]
     detectors.run_detectors("test", now=NOW)
     assert g.ro_query("MATCH (p:Plan) RETURN count(p)").result_set == [[2]]
-    assert len([text for _, text, _ in calls if "follow-up plan" in text]) == 1
+    assert len([text for _, text, _ in calls if "your list of fixes" in text]) == 1
     missed("two")
     detectors.run_detectors("test", now=NOW)
     assert g.ro_query("MATCH (p:Plan) RETURN count(p)").result_set == [[3]]
     assert g.ro_query("MATCH (c:Change {account_id: 'two'}) RETURN c.to_root").result_set == [["new"]]
-    assert len([text for _, text, _ in calls if "follow-up plan" in text]) == 1
+    assert len([text for _, text, _ in calls if "your list of fixes" in text]) == 1
 
 
 @pytest.mark.db
@@ -336,9 +336,9 @@ def test_missed_account_without_modelled_change_does_not_create_empty_plans(dete
     assert [item.id for item in first] == [item.id for item in second]
     assert g.ro_query("MATCH (p:Plan) RETURN count(p)").result_set == [[1]]
     missed = next(item for item in first if item.kind == "missed_account")
-    assert "1 accounts need manual review" in missed.detail
-    assert "follow-up plan" not in missed.detail
-    assert len([text for _, text, _ in calls if "manual review" in text]) == 1
+    assert "check 1 account yourself" in missed.detail
+    assert "your list of fixes" not in missed.detail
+    assert len([text for _, text, _ in calls if "check 1 account yourself" in text]) == 1
 
 
 @pytest.mark.db
@@ -386,3 +386,26 @@ def test_pending_signal_consolidates_backfill_state_before_delivery(detector_gra
     assert result[0].status == "acted"
     assert not calls
     assert g.ro_query("MATCH (s:Signal) RETURN count(s), s.detector_notified").result_set == [[1, True]]
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("count", [1, 2])
+def test_unknown_alerts_are_honest_and_pluralized(detector_graph, count):
+    g, _ = detector_graph
+    root(g, status="retiring", last4="4321", reissue_after="2026-10-18")
+    for index in range(count):
+        g.query(
+            "MATCH (r:Root) CREATE (:Account {id: $id, display: 'Unknown site', modelled: false})"
+            "-[:USES {role: 'login_phone'}]->(r)",
+            {"id": f"unknown-{index}"},
+        )
+    text = detectors.run_detectors("test", now=NOW)[0].detail
+    assert "<b>Oct 18</b> (in 1 day)" in text
+    expected = (
+        "I don't know how another site lets you back in, so I can't promise it's safe."
+        if count == 1
+        else "I don't know how 2 other sites let you back in, so I can't promise they're safe."
+    )
+    assert expected in text
+    assert "unknown-" not in text
+    assert "Under the methods" not in text

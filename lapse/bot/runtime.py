@@ -8,7 +8,7 @@ import re
 from collections import defaultdict, deque
 from contextlib import suppress
 from dataclasses import dataclass
-from html import escape
+from html import escape, unescape
 from importlib import import_module
 from secrets import token_urlsafe
 from time import monotonic
@@ -25,6 +25,28 @@ from lapse.contracts import ChangeStatus, GraphEvent, RootKind, RootStatus, Scen
 from lapse.graph import planner, scenarios, views
 
 logger = logging.getLogger(__name__)
+
+
+def html_chunks(text: str) -> list[str]:
+    chunks, parts, size, bold = [], [], 0, False
+    for token in re.split(r"(</?b>)", text or "I couldn't find an answer. Please try again."):
+        if token in {"<b>", "</b>"}:
+            opening = token == "<b>"
+            if opening != bold:
+                parts.append(token)
+                bold = opening
+            continue
+        token = unescape(token)
+        while token:
+            piece, token = token[: 2000 - size], token[2000 - size :]
+            parts.append(escape(piece))
+            size += len(piece)
+            if size == 2000:
+                chunks.append("".join(parts) + ("</b>" if bold else ""))
+                parts, size = (["<b>"] if bold else []), 0
+    if size or not chunks:
+        chunks.append("".join(parts) + ("</b>" if bold else ""))
+    return chunks
 
 
 async def invoke(function, *args, **kwargs):
@@ -77,7 +99,13 @@ class BotRuntime:
                     raise ValueError("External button must use an HTTPS URL")
                 item = InlineKeyboardButton(button["label"], url=url)
             else:
-                if action not in {"approve_changes", "plan_root", "confirm_use", "dismiss_signal"}:
+                if action not in {
+                    "approve_changes",
+                    "plan_root",
+                    "confirm_use",
+                    "dismiss_signal",
+                    "check_change",
+                }:
                     raise ValueError("Unsupported button action")
                 callback_id = "cb:" + token_urlsafe(12)
                 await self.redis.set(
@@ -92,10 +120,10 @@ class BotRuntime:
     async def send(self, bot, uid, chat_id, text, buttons=(), *, edit=None):
         keyboard = await self.keyboard(uid, chat_id, buttons)
         # Telegram counts UTF-16 units after parsing HTML; 2000 code points fit even with emoji.
-        chunks = [text[i : i + 2000] for i in range(0, len(text), 2000)] or ["No reply available."]
+        chunks = html_chunks(text)
         for index, chunk in enumerate(chunks):
             kwargs = {
-                "text": escape(chunk),
+                "text": chunk,
                 "parse_mode": ParseMode.HTML,
                 "reply_markup": keyboard if index == len(chunks) - 1 else None,
             }
@@ -148,10 +176,10 @@ class BotRuntime:
     async def help(self, update, context):
         await update.effective_message.reply_text(
             "/start <code> · Connect from web onboarding\n"
-            "/status · Roots, open plans and deadlines\n"
-            "/risk · Risk for retiring roots\n"
+            "/status · What still needs doing\n"
+            "/risk [number or email] · What could go wrong when it changes\n"
             "/help · This help\n"
-            "Or send a message. I will ask before taking consequential actions."
+            "Or tell me what you’re changing. I’ll ask before changing an account."
         )
 
     async def status(self, update, context):
@@ -165,31 +193,74 @@ class BotRuntime:
     async def risk(self, update, context):
         if (uid := await self.uid(update, context)) is None:
             return
+        from lapse.agent import guard, tools
+
         roots = await invoke(views.list_roots, uid)
-        roots = [root for root in roots if root.status in {RootStatus.retiring, RootStatus.closing}]
-        for root in roots:
-            kind = (
-                ScenarioKind.lockout
-                if root.kind in {RootKind.email, RootKind.device}
-                else ScenarioKind.takeover
-            )
-            result = await invoke(scenarios.run_scenario, uid, ScenarioRequest(kind=kind, root_ids=[root.id]))
-            await self.send(
-                context.bot,
-                uid,
-                update.effective_chat.id,
-                cards.scenario_card(root, result),
-                [
-                    {"label": "Plan the fix", "action": "plan_root", "payload": {"root_id": root.id}},
-                    {
-                        "label": "Show risk",
-                        "action": "open_web",
-                        "payload": {"path": f"/graph?scenario={quote(result.id)}"},
-                    },
-                ],
-            )
-        if not roots:
-            await self.send(context.bot, uid, update.effective_chat.id, "No retiring or closing roots yet.")
+        hint = " ".join(context.args).strip()
+        buttons = []
+        if hint:
+            resolved = await invoke(tools.resolve, uid, hint)
+            candidates = resolved.get("candidates", [])
+            if len(candidates) != 1:
+                choices = candidates or [
+                    {"id": root.id, "label": root.label, "kind": "root"} for root in roots
+                ]
+                by_id = {root.id: root for root in roots}
+                names = [
+                    cards.root_name(by_id[c["id"]]) if c["id"] in by_id else cards.account_name(c["label"])
+                    for c in choices
+                ]
+                text = (
+                    "Which one do you mean: " + cards.join_names(names) + "?"
+                    if names
+                    else ("Which phone number, email, or service do you mean?")
+                )
+            else:
+                candidate = candidates[0]
+                if candidate["kind"] == "account":
+                    detail = await invoke(
+                        tools.dispatch, uid, "account_info", {"account_id": candidate["id"]}
+                    )
+                    if detail.get("outcome"):
+                        text = guard.templated([detail])
+                    else:
+                        changing = [
+                            root for root in roots if root.status in {RootStatus.retiring, RootStatus.closing}
+                        ]
+                        items = [(root, await self.root_risk(uid, root)) for root in changing]
+                        text = cards.account_risk_card(detail["account"], items)
+                else:
+                    root = next(root for root in roots if root.id == candidate["id"])
+                    if root.status == RootStatus.active:
+                        text = cards.kept_card(root)
+                    else:
+                        result = await self.root_risk(uid, root)
+                        accounts = (
+                            await invoke(actions.list_accounts, uid) if root.kind == RootKind.email else []
+                        )
+                        text = cards.scenario_card(root, result, accounts=accounts)
+                        buttons = self.risk_buttons(root, result)
+        else:
+            changing = [root for root in roots if root.status in {RootStatus.retiring, RootStatus.closing}]
+            items = [(root, await self.root_risk(uid, root)) for root in changing]
+            text = cards.risk_summary(items)
+        await self.send(context.bot, uid, update.effective_chat.id, text, buttons)
+
+    async def root_risk(self, uid, root):
+        kind = (
+            ScenarioKind.lockout if root.kind in {RootKind.email, RootKind.device} else ScenarioKind.takeover
+        )
+        return await invoke(scenarios.run_scenario, uid, ScenarioRequest(kind=kind, root_ids=[root.id]))
+
+    def risk_buttons(self, root, result):
+        return [
+            {"label": "Fix it for me", "action": "plan_root", "payload": {"root_id": root.id}},
+            {
+                "label": "Show me",
+                "action": "open_web",
+                "payload": {"path": f"/graph?scenario={quote(result.id, safe='')}"},
+            },
+        ]
 
     async def text(self, update, context):
         if (uid := await self.uid(update, context)) is None:
@@ -266,29 +337,85 @@ class BotRuntime:
             for change_id in change_ids:
                 change = await invoke(planner.update_change, uid, change_id, status=ChangeStatus.approved)
                 await invoke(dependency("jobs").enqueue, uid, "execute_change", {"change_id": change_id})
-                approved.append(f"• {change.account_label} · {cards.TIERS[change.tier]}")
-            text = "Approved steps:\n" + "\n".join(approved)
+                approved.append(change)
+            automatic = [change for change in approved if change.tier <= 2]
+            assisted = [change for change in approved if change.tier == 3]
+            messages = []
+            if automatic:
+                messages.append(
+                    "I'll handle "
+                    + cards.join_names(cards.account_name(c.account_label) for c in automatic)
+                    + " now and ping you when it's done."
+                )
+            if assisted:
+                messages.append(
+                    "I'll send you the link for "
+                    + cards.join_names(cards.account_name(c.account_label) for c in assisted)
+                    + " and watch for confirmation once you've changed it."
+                )
+            text = "Approved: " + " ".join(messages)
         elif action == "plan_root":
-            plan = await invoke(planner.plan_for_root, uid, payload["root_id"], payload.get("new_root_id"))
+            roots = await invoke(views.list_roots, uid)
+            root = next((root for root in roots if root.id == payload["root_id"]), None)
+            replacement = payload.get("new_root_id")
+            options = [
+                other
+                for other in roots
+                if root
+                and other.id != root.id
+                and other.kind == root.kind
+                and other.status == RootStatus.active
+            ]
+            if replacement is None and len(options) == 1:
+                replacement = options[0].id
+            elif replacement is None and len(options) > 1:
+                await self.send(
+                    context.bot,
+                    uid,
+                    chat_id,
+                    "Which one should I switch to: "
+                    + cards.join_names(cards.root_name(r) for r in options)
+                    + "?",
+                    edit=query.message,
+                )
+                return
+            plan = await invoke(planner.plan_for_root, uid, payload["root_id"], replacement)
             result = await invoke(
                 scenarios.run_scenario, uid, ScenarioRequest(kind=plan.kind, root_ids=[plan.old_root])
             )
-            text = cards.plan_card(plan, result)
+            text = cards.plan_card(plan, result, roots=roots)
             ids = [step.id for step in plan.steps if step.tier <= 3 and step.status == ChangeStatus.proposed]
             if ids:
                 buttons.append(
                     {
-                        "label": "Approve all T1–T3",
+                        "label": "Approve all",
                         "action": "approve_changes",
                         "payload": {"change_ids": ids},
                     }
                 )
-            buttons.append(
-                {
-                    "label": "Review steps",
-                    "action": "open_web",
-                    "payload": {"path": f"/plans/{quote(plan.id, safe='')}"},
-                }
+            if len(plan.steps) == 1 and plan.steps[0].tier == 3 and plan.steps[0].settings_url:
+                buttons.append(
+                    {
+                        "label": "Open the link",
+                        "action": "open_url",
+                        "payload": {"url": plan.steps[0].settings_url},
+                    }
+                )
+            else:
+                buttons.append(
+                    {
+                        "label": "Show me",
+                        "action": "open_web",
+                        "payload": {"path": f"/plans/{quote(plan.id, safe='')}"},
+                    }
+                )
+        elif action == "check_change":
+            await invoke(dependency("exec.verify").verify_pending, uid)
+            change = await invoke(actions.get_change, uid, payload["change_id"])
+            text = (
+                f"Done ✅ I've confirmed the change to {cards.account_name(change.account_label)}."
+                if change.status == ChangeStatus.done
+                else "I haven't seen the confirmation yet. I'll keep checking your email."
             )
         elif action == "confirm_use":
             await invoke(
@@ -306,7 +433,7 @@ class BotRuntime:
             )
         elif action == "dismiss_signal":
             await invoke(actions.dismiss_signal, uid, payload["signal_id"])
-            text = "Signal dismissed."
+            text = "Got it. I’ve dismissed that reminder."
         else:
             raise ValueError("Unsupported callback")
         await self.send(context.bot, uid, chat_id, text, buttons, edit=query.message)
@@ -321,7 +448,7 @@ class BotRuntime:
                 bot,
                 pending.uid,
                 chat_id,
-                f"{pending.service} sent a code to {pending.channel}. Reply with it (5 min).",
+                f"{cards.account_name(pending.service)} sent a code to {escape(pending.channel.removeprefix('sms:'))}. Reply with it here (you’ve got 5 min).",
             )
 
     async def relay_otp(self, update, context, uid, code):
@@ -332,11 +459,11 @@ class BotRuntime:
             if pending and pending.uid == uid and pending.expires_at > monotonic():
                 await invoke(dependency("otp").submit, uid, pending.change_id, code)
                 self.pending[chat_id] = deque(item for item in self.pending[chat_id] if item is not pending)
-                reply = "Code passed to the agent"
+                reply = "Got it. I’m using that code now."
             else:
                 if queue:
                     queue.popleft()
-                reply = "There is no active code request. Ask the agent to request a new code."
+                reply = "That code request has expired. Try the change again to get a new one."
         finally:
             try:
                 await context.bot.delete_message(

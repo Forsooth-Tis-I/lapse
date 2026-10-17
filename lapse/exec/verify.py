@@ -1,9 +1,10 @@
 import re
 from datetime import UTC, datetime
 from email.utils import parseaddr
+from html import escape
 
 from lapse.contracts import EventKind, Evidence, Root, UseRole
-from lapse.exec.base import StepEmitter
+from lapse.exec.base import StepEmitter, contact_value
 from lapse.exec.jobs import load_policies
 from lapse.graph import db
 from lapse.graph.planner import apply_change_done
@@ -82,8 +83,12 @@ def verify_pending(uid: str, *, trace=None) -> list[str]:
                 role=UseRole(change["role"]),
             ):
                 apply_change_done(uid, change["id"], evidence.id, trace=trace)
-                target = new_root.label if new_root else "no old contact"
-                message = f"Confirmed: {policy.service.name} now uses {target}"
+                service = f"<b>{escape(policy.service.name)}</b>"
+                message = (
+                    f"Done ✅ {service} now uses {contact_value(new_root)}."
+                    if new_root
+                    else f"Done ✅ {service} no longer uses your old contact."
+                )
                 StepEmitter(uid, change["id"], trace=trace).emit("done", message)
                 notify(uid, message)
                 completed.append(change["id"])

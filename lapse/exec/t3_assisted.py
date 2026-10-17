@@ -1,5 +1,8 @@
+from html import escape
+
+from lapse.bot.cards import join_names
 from lapse.contracts import Change
-from lapse.exec.base import ExecContext
+from lapse.exec.base import CONTACT_ROLES, ExecContext, contact_value
 
 
 class AssistedExecutor:
@@ -7,11 +10,15 @@ class AssistedExecutor:
         return True
 
     async def run(self, ctx: ExecContext, *, url: str | None = None) -> bool:
-        target = ctx.new_root.label if ctx.new_root else "remove the old contact"
+        contact = join_names(CONTACT_ROLES[role] for role in (ctx.change.roles or [ctx.change.role]))
+        action = (
+            f"change your {contact} from {contact_value(ctx.old_root)} to {contact_value(ctx.new_root)}"
+            if ctx.new_root
+            else f"remove {contact_value(ctx.old_root)} as your {contact}"
+        )
         message = (
-            f"Open {ctx.service.name} settings and change {ctx.change.role.value} from "
-            f"{ctx.old_root.label} to {target}. Remove the old contact after verifying the new one. "
-            "I will watch for a matching confirmation email."
+            f"Open <b>{escape(ctx.service.name)}</b> settings and {action}. "
+            "I'll check your email for confirmation and tick it off once it's changed."
         )
         ctx.emitter.emit(
             "need_user", message, url=url or ctx.procedure.settings_url or ctx.change.settings_url

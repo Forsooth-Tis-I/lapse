@@ -216,7 +216,13 @@ async def test_otp_wait_and_timeout(ctx, monkeypatch):
     await run_recipe(page, recipe(AwaitOTP(), Fill((Selector("Code", "textbox"),), "{code}")), ctx)
     assert received == [("test", "change:1", 300)]
     assert ("fill", "Code", "654321") in page.actions
-    assert any(args[0] == "need_otp" and kw["channel"] == "sms:••7788" for args, kw in messages)
+    assert (
+        (
+            "need_otp",
+            "<b>Notion</b> sent a code to ••7788. Reply with it here (you've got 5 min).",
+        ),
+        {"channel": "sms:••7788"},
+    ) in messages
     assert "654321" not in str(messages)
     monkeypatch.setitem(sys.modules, "lapse.otp", SimpleNamespace(wait=lambda *a, **k: None))
     with pytest.raises(TimeoutError):

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import re
+from html import escape, unescape
 from pathlib import Path
+
+from pydantic import ValidationError
+
+from lapse.bot.cards import account_name, format_date, join_names, plan_card, root_name, scenario_card
+from lapse.contracts import Plan, Root, ScenarioResult
 
 ENTITY_FIELDS = {
     "id",
@@ -48,25 +54,23 @@ def entities(results):
     return values
 
 
-def has_unknown(results):
-    return any(
-        isinstance(result, dict)
-        and (result.get("outcome") in {"not_in_graph", "unknown_root"} or result.get("unknown_accounts"))
-        for result in results
-    )
-
-
 def grounded(text: str, results: list) -> bool:
-    if not text or "under the methods we model" not in text.casefold():
+    if not text:
         return False
-    if has_unknown(results) and "unknown, not safe" not in text.casefold():
-        return False
-    remainder = text
-    for value in sorted(entities(results), key=len, reverse=True):
+    remainder = unescape(re.sub(r"</?b>", "", text))
+    names = entities(results)
+    names |= {part for name in names for part in name.split(" · ")}
+    for name in tuple(names):
+        phone = re.fullmatch(r"(?:••)?(\d{4})(?: \(([^()]+)\))?", name)
+        if phone:
+            names.add(f"••{phone[1]}")
+            if phone[2]:
+                names.add(phone[2])
+    for value in sorted(names, key=len, reverse=True):
         remainder = re.sub(r"(?<!\w)" + re.escape(value) + r"(?!\w)", " ", remainder, flags=re.IGNORECASE)
     words = re.findall(r"[\w@.+•-]+", remainder.casefold())
     return all(
-        word.strip(".-") in PROSE or re.fullmatch(r"\d{1,3}(?:[.,]\d{1,2})?|t[1-4]", word)
+        word.strip(".-") in PROSE or re.fullmatch(r"\d{1,3}(?:[.,]\d{1,2})?|t[1-4]", word.strip(".-"))
         for word in words
         if word.strip(".-")
     )
@@ -80,112 +84,184 @@ def focused_results(results: list) -> list:
         if len(candidates) == 1 and candidates[0].get("kind") == "root":
             root_id = candidates[0]["id"]
             return [
-                item for item in results
-                if not isinstance(item, dict) or "affected_accounts" not in item or root_id in item["root_ids"]
+                item
+                for item in results
+                if not isinstance(item, dict)
+                or "affected_accounts" not in item
+                or root_id in item["root_ids"]
             ]
     return results
+
+
+def _roots(results):
+    roots = []
+    for result in results:
+        items = (
+            result
+            if isinstance(result, list)
+            else result.get("roots", [])
+            if isinstance(result, dict)
+            else []
+        )
+        for item in items:
+            try:
+                roots.append(Root.model_validate(item))
+            except ValidationError:
+                continue
+    return roots
+
+
+def _scenario(result, results):
+    root = next((root for root in _roots(results) if root.id in result["root_ids"]), None)
+    if root is not None:
+        try:
+            return scenario_card(root, ScenarioResult.model_validate(result))
+        except ValidationError:
+            pass
+    affected = result["affected_accounts"]
+    direct_ids = set(result["direct_accounts"])
+    direct = [account_name(a["label"]) for a in affected if a["node_id"] in direct_ids]
+    indirect = [account_name(a["label"]) for a in affected if a["node_id"] not in direct_ids]
+    lines = []
+    if result["kind"] == "lockout":
+        lost = [account_name(a["label"]) for a in result.get("lost_now_accounts", [])]
+        recovery = [account_name(a["label"]) for a in result.get("recovery_lost_accounts", [])]
+        if lost:
+            lines.append(
+                f"You could lose access to {join_names(lost)}. Save anything you need from it first."
+                if len(lost) == 1
+                else f"You could lose access to {join_names(lost)}. Save anything you need first."
+            )
+        if recovery:
+            lines.append(
+                f"You could also lose your way back into {join_names(recovery)} if you forget your password."
+            )
+        if not lost and not recovery:
+            if affected and "lost_now_accounts" not in result:
+                lines.append(
+                    f"Losing this could affect your access to {join_names([account_name(a['label']) for a in affected])}."
+                )
+            else:
+                lines.append(
+                    "You can still sign in to your accounts and get back in if you forget your password."
+                )
+    else:
+        if direct:
+            lines.append(f"Someone who gets this could get into your {join_names(direct)}.")
+        if indirect:
+            lines.append(
+                f"Through {'that account' if len(direct) == 1 else 'those accounts'}, "
+                f"they could get into {join_names(indirect)} too."
+                if direct
+                else f"They could get into {join_names(indirect)} through other accounts."
+            )
+        if not affected:
+            lines.append("I didn't find any accounts someone could get into this way.")
+    if result.get("unknown_accounts"):
+        lines.append(
+            "I don't know how some of your other sites let people back in, so I can't promise they're safe."
+        )
+    if affected:
+        lines.append("Want me to fix it?")
+    return " ".join(lines)
 
 
 def templated(results: list) -> str:
     scenarios = {r["kind"]: r for r in results if isinstance(r, dict) and "affected_accounts" in r}
     if len(scenarios) > 1 and isinstance(results[-1], dict) and "affected_accounts" in results[-1]:
-        return "\n".join(templated([result]) for result in scenarios.values())
+        answers = [
+            _scenario(result, results).removesuffix(" Want me to fix it?") for result in scenarios.values()
+        ]
+        return "\n".join(answers) + " Want me to fix it?"
     for result in reversed(results):
-        if not isinstance(result, dict):
-            if isinstance(result, list) and result:
-                labels = [
-                    item.get("label", item.get("id", "")) if isinstance(item, dict) else str(item)
-                    for item in result
-                ]
-                return f"Stored in the graph: {', '.join(labels)}. Choose a root to show risk under the methods we model."
+        if isinstance(result, list) and result:
+            roots = _roots([result])
+            if roots:
+                lines = []
+                for root in roots:
+                    date = root.drop_at or root.closes_at or root.expires_at
+                    ending = " is staying with you" if root.status == "active" else " is changing"
+                    if date:
+                        ending += f" on {format_date(date, bold=True)}"
+                    lines.append(root_name(root) + ending + ".")
+                return "\n".join(lines) + "\nWhich one would you like to check?"
+            labels = [
+                escape(item["label"]) for item in result if isinstance(item, dict) and item.get("label")
+            ]
+            if labels:
+                return f"Which one would you like to check: {join_names(labels)}?"
             continue
+        if not isinstance(result, dict):
+            continue
+        if result.get("outcome") == "kept":
+            return f"{escape(result['label'])} is the number you're keeping, so nothing's at risk there."
         if result.get("outcome") in {"error", "not_in_graph", "unknown_root"}:
-            return f"{result['message']} Choose a known root to review under the methods we model."
+            account = result.get("account") or {}
+            service = result.get("service") or {}
+            label = service.get("name") or account.get("display")
+            if label:
+                return f"I don't know how {account_name(label)} lets people back in, so I can't promise it's safe."
+            if result.get("outcome") == "error":
+                return "I couldn't check that right now. Please try again."
+            return "I haven't found that account or contact yet, so I can't tell you whether it's safe. Which email, number, or service do you mean?"
         if "affected_accounts" in result:
-            direct = len(result["direct_accounts"])
-            indirect = len(
-                {a["node_id"] for a in result["affected_accounts"]} - set(result["direct_accounts"])
-            )
-            labels = ", ".join(a["label"] for a in result["affected_accounts"]) or "none"
-            unknown = result.get("unknown_accounts", [])
-            extra = f" Unknown, not safe: {', '.join(unknown)}." if unknown else ""
-            if result["kind"] == "lockout" and "lost_now_accounts" in result:
-                lost = result["lost_now_accounts"]
-                recovery = result["recovery_lost_accounts"]
-                lost_labels = ", ".join(a["label"] for a in lost) or "none"
-                recovery_labels = ", ".join(a["label"] for a in recovery) or "none"
-                return (
-                    f"Under the methods we model, lost outright: {len(lost)} ({lost_labels}); "
-                    f"no way back if you forget the password: {len(recovery)} ({recovery_labels})."
-                    f"{extra} Plan the fix next."
-                )
-            via = "other accounts"
-            for hub in result.get("via_accounts", []):
-                if len(hub["accounts"]) == indirect:
-                    via = hub["label"]
-                    break
-            return (
-                f"Under the methods we model, {result['kind']}: directly: {direct}; "
-                f"through {via}: {indirect} more. Affected accounts: {labels}.{extra} Plan the fix next."
-            )
+            return _scenario(result, results)
         if "exposure_before" in result:
-            steps = (
-                "; ".join(
-                    f"{s['order']}. {s.get('title') or s['account_label']} (T{s['tier']}, {s['status']})"
-                    for s in result["steps"]
-                )
-                or "No changes proposed"
-            )
-            feasibility = "" if result["feasible"] else " The full plan is infeasible before the deadline."
-            components = ""
-            if result.get("takeover_before") is not None:
-                components = (
-                    f" Takeover: {result['takeover_before']} to {result['takeover_after']};"
-                    f" lockout: {result['lockout_before']} to {result['lockout_after']}."
-                )
-            note = f" {result['note']}" if result.get("note") else ""
-            return (
-                f"Under the methods we model, planned exposure: {result['exposure_before']} to "
-                f"{result['exposure_after']}.{components} {steps}.{feasibility}{note} Review the steps before approval."
-            )
+            try:
+                return plan_card(Plan.model_validate(result), roots=_roots(results))
+            except ValidationError:
+                steps = result["steps"]
+                if not steps:
+                    return "There are no changes to make right now."
+                lines = ["Here's how we fix it:"]
+                for step in steps:
+                    status = step.get("status")
+                    name = account_name(step["account_label"])
+                    action = f"{name} is done." if status == "done" else f"Update your {name}."
+                    lines.append(f"{step['order']}. {action}")
+                if not result["feasible"]:
+                    lines.append("Some changes may not be possible before your deadline.")
+                return "\n".join(lines)
         if result.get("outcome") == "not_affected":
-            return "This account is not affected in this scenario under the methods we model. Review its methods next."
+            return "This change doesn't put that account at risk based on how it lets you sign in and get back in."
         if result.get("outcome") in {"path", "lost_now", "recovery_lost"}:
-            path = "; ".join(
-                f"{s['from_label']} to {s['to_label']} through {s['method_label']}" for s in result["steps"]
-            )
-            scenario = next(
-                (r for r in reversed(results) if isinstance(r, dict) and "affected_accounts" in r), {}
-            )
-            kind = {
-                "lost_now": "lost outright",
-                "recovery_lost": "no way back if you forget the password",
-            }.get(result["outcome"], scenario.get("kind", "risk"))
-            return f"Under the methods we model, {kind}: {path}. Review all required method branches, then plan the fix."
+            grouped = {}
+            for step in result["steps"]:
+                key = (step["to_id"], step.get("method_id", step.get("method_label")))
+                grouped.setdefault(key, {"to": step["to_label"], "from": []})["from"].append(
+                    step["from_label"]
+                )
+            lines = []
+            for group in grouped.values():
+                sources = join_names([account_name(label) for label in group["from"]])
+                target = account_name(group["to"])
+                if result["outcome"] == "recovery_lost":
+                    lines.append(f"You use {sources} to get back into {target} if you forget your password.")
+                elif result["outcome"] == "lost_now":
+                    lines.append(f"You need {sources} to sign in to {target} this way.")
+                else:
+                    lines.append(f"Someone needs {sources} to get into {target} this way.")
+            return " ".join(lines) or "I couldn't trace how that account is affected."
         if "candidates" in result:
-            choices = ", ".join(c["label"] for c in result["candidates"])
-            return f"Choose a matching root or account: {choices}. Then show risk under the methods we model."
+            labels = [escape(c["label"]) for c in result["candidates"] if c.get("label")]
+            if not labels:
+                return "Which email, number, or service do you mean?"
+            choices = ", ".join(labels[:-1]) + " or " + labels[-1] if len(labels) > 1 else labels[0]
+            return f"Do you mean {choices}?"
         if "account" in result:
             account = result["account"]
-            return (
-                f"{account.get('display', account['id'])} is in the graph. "
-                "Choose a root to explain its risk under the methods we model."
-            )
-    return "Choose a known root to show risk or plan the fix under the methods we model. Unknown means unknown, not safe."
+            name = account_name(account["display"]) if account.get("display") else "that account"
+            return f"I found {name}. Which email or number are you changing?"
+    return "Which email, number, or service would you like me to check?"
 
 
 def approval_summary(plan: dict) -> str:
     if isinstance(plan, dict) and plan.get("outcome") == "memory":
-        return f"{plan['message']} Plan the fix first under the methods we model."
+        return "There's no plan waiting for approval. Ask me to plan the fix first."
     if not isinstance(plan, dict) or "steps" not in plan:
         return templated([plan])
     steps = [step for step in plan["steps"] if step["tier"] <= 3 and step["status"] == "proposed"]
     if not steps:
-        return "No proposed T1–T3 steps remain under the methods we model. Review the plan in web."
-    summary = "; ".join(
-        f"{step.get('title') or step['account_label']} (T{step['tier']})" for step in steps
-    )
-    return (
-        f"Under the methods we model, proposed T1–T3 steps: {summary}. "
-        "Press Approve all T1–T3 to approve these steps. Nothing has been approved by this message."
-    )
+        return "There's nothing left to approve. You can check your plan for anything still to do."
+    names = list(dict.fromkeys(account_name(step["account_label"]) for step in steps))
+    return f"Ready to update {join_names(names)}. Tap <b>Approve all</b> to start."

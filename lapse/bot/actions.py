@@ -44,3 +44,7 @@ def confirm_use(uid: str, account_id: str, root_id: str, role: str, value: bool,
         raise ValueError("Account use not found")
     policies = [policy for path in default_policy_paths() for policy in load_policy_file(path)[0]]
     compile_user_graph(g, policies, account_ids=[account_id])
+
+
+def list_accounts(uid: str) -> list[dict]:
+    return [row["account"] for row in db.run(db.user_graph(uid), "wp4_accounts").rows]
