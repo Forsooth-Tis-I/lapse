@@ -189,3 +189,72 @@ def test_policy_graph_writes_templates_changes_and_carriers(isolated_graph, fixt
         "MATCH (c:Carrier {id: 'vi_in'}) RETURN c.reissue_after_days"
     ).result_set == [[90]]
     assert isolated_graph.ro_query("MATCH (s:Service) RETURN count(s)").result_set == [[len(policies)]]
+
+
+@pytest.fixture
+def researched_persona(isolated_graph):
+    policies, _ = load_policy_file(ROOT_DIR / "lapse/policy/services.yaml")
+    _, carriers = load_policy_file(ROOT_DIR / "lapse/policy/carriers.yaml")
+    load_persona(isolated_graph, policies, carriers)
+    return isolated_graph
+
+
+def test_researched_persona_compiles_every_account(researched_persona):
+    from lapse.graph.db import run
+
+    actual = {
+        row["account_id"]: (row["modelled"], row["method_count"])
+        for row in run(researched_persona, "fixture_method_counts").rows
+    }
+    assert actual == {
+        "amazon_in": (True, 5),
+        "canva": (True, 3),
+        "college_workspace": (True, 1),
+        "coursera": (True, 2),
+        "dropbox": (True, 2),
+        "figma": (True, 2),
+        "github": (True, 2),
+        "google": (True, 3),
+        "linkedin": (True, 3),
+        "microsoft": (True, 2),
+        "notion": (True, 3),
+        "paypal": (True, 2),
+        "spotify": (True, 2),
+        "splitwise": (False, 0),
+        "swiggy": (True, 1),
+        "x": (True, 3),
+        "zomato": (True, 1),
+    }
+
+
+@pytest.mark.parametrize(
+    "account_id,method_id,expected_needs",
+    [
+        ("github", "m:github:reset_email_then_totp", ["device_phone", "email_primary"]),
+        ("dropbox", "m:dropbox:reset_email_then_sms", ["email_primary", "phone_old"]),
+    ],
+)
+def test_researched_resets_retain_enrolled_factor(researched_persona, account_id, method_id, expected_needs):
+    rows = researched_persona.ro_query(
+        "MATCH (m:Method {kind: 'reset'})-[:GRANTS]->(:Account {id: $id}), "
+        "(m)-[:NEEDS]->(r) RETURN m.id, r.id ORDER BY m.id, r.id",
+        {"id": account_id},
+    ).result_set
+    assert rows == [[method_id, root] for root in expected_needs]
+    assert researched_persona.ro_query(
+        "MATCH (:Root {id: 'email_primary'})-[:ENABLES]->(:Account {id: $id}) RETURN count(*)",
+        {"id": account_id},
+    ).result_set == [[0]]
+
+
+def test_college_mailbox_password_does_not_bypass_enrolled_sms(researched_persona):
+    researched_persona.query(
+        "MATCH (a:Account {id: 'college_workspace'}), (r:Root {id: 'phone_old'}) "
+        "CREATE (a)-[:USES {role: 'sms_2fa'}]->(r)"
+    )
+    policies, _ = load_policy_file(ROOT_DIR / "lapse/policy/services.yaml")
+    compiler.compile_user_graph(researched_persona, policies, account_ids=["college_workspace"])
+    assert researched_persona.ro_query(
+        "MATCH (m:Method)-[:GRANTS]->(:Account {id: 'college_workspace'}) "
+        "OPTIONAL MATCH (m)-[:NEEDS]->(n) RETURN m.id, m.needs_password, collect(n.id)"
+    ).result_set == [["m:college_workspace:login_password_sms", True, ["phone_old"]]]

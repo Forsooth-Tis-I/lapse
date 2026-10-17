@@ -66,6 +66,9 @@ def test_service_contract_and_methods(row):
         assert method.doc_url and urlsplit(method.doc_url).scheme == "https"
         assert method.needs_roles or method.needs_password
         assert all(role in UseRole for role in method.needs_roles)
+        assert all(role in UseRole for role in method.requires_absent_roles)
+        assert len(method.requires_absent_roles) == len(set(method.requires_absent_roles))
+        assert not set(method.needs_roles) & set(method.requires_absent_roles)
         assert len(method.needs_roles) == len(set(method.needs_roles))
 
 
@@ -132,3 +135,32 @@ def test_notification_patterns_require_completed_change(service_id, root_kind, c
     procedure = next(change for change in policy.change if change.root_kind == root_kind)
     assert any(re.search(pattern, completed) for pattern in procedure.confirmation_patterns)
     assert not any(re.search(pattern, pending) for pattern in procedure.confirmation_patterns)
+
+
+def test_demo_services_have_modelled_methods():
+    persona = yaml.safe_load((POLICY_DIR.parents[1] / "fixtures/persona.yaml").read_text())
+    required = {account["service_id"] for account in persona["accounts"] if account["modelled"]}
+    required.add("discord")
+    policies = {row["service"]["id"]: ServicePolicy.model_validate(row) for row in SERVICE_ROWS}
+    assert "splitwise" not in policies
+    for service_id in required:
+        assert policies[service_id].service.modelled, service_id
+        assert policies[service_id].methods, service_id
+    for service_id in ("notion", "canva"):
+        assert any(c.root_kind == "email" and c.tier == 1 for c in policies[service_id].change)
+
+
+def test_mfa_services_exclude_single_proof_bypasses():
+    for row in SERVICE_ROWS:
+        policy = ServicePolicy.model_validate(row)
+        factors = {role for m in policy.methods for role in m.needs_roles} & {
+            UseRole.sms_2fa,
+            UseRole.totp_device,
+        }
+        for method in policy.methods:
+            if (
+                factors
+                and (not method.needs_roles or not method.needs_password)
+                and not set(method.needs_roles) & factors
+            ):
+                assert factors <= set(method.requires_absent_roles), (policy.service.id, method.id)

@@ -9,8 +9,8 @@ from falkordb.graph import Graph
 from redis.exceptions import ResponseError
 
 from lapse.config import ROOT_DIR
-from lapse.contracts import Account, CarrierRule, Evidence, Root, RootKind, ServicePolicy, Uses
-from lapse.graph.db import ensure_schema, policy_graph, run, user_graph
+from lapse.contracts import Account, CarrierRule, Evidence, Root, RootKind, Service, ServicePolicy, Uses
+from lapse.graph.db import ensure_schema, graph, run
 from lapse.policy.compile import compile_user_graph, write_policy_graph
 from lapse.policy.loader import load_policy_file
 
@@ -28,6 +28,13 @@ def load_persona(
         if root.kind == RootKind.phone and root.drop_at is not None:
             root.reissue_after = root.drop_at + timedelta(days=rules[root.carrier].reissue_after_days)
     accounts = [Account.model_validate(account) for account in data["accounts"]]
+    services = {policy.service.id: policy.service for policy in policies}
+    for account in accounts:
+        service = services.setdefault(
+            account.service_id,
+            Service(id=account.service_id, name=account.display, modelled=False),
+        )
+        account.modelled = account.modelled and service.modelled
     uses = [Uses.model_validate(use) for use in data["uses"]]
     evidence = [Evidence.model_validate(item["evidence"]) for item in data["evidence"]]
     if any(len(item.snippet) > 300 for item in evidence):
@@ -48,7 +55,7 @@ def load_persona(
     run(
         g,
         "policy_service",
-        {"services": [policy.service.model_dump(mode="json", exclude_none=True) for policy in policies]},
+        {"services": [service.model_dump(mode="json", exclude_none=True) for service in services.values()]},
         write=True,
     )
     run(
@@ -85,18 +92,27 @@ def main() -> None:
         description="Replace the demo policy and user graphs with fake fixture data."
     )
     parser.add_argument("--uid", default="demo")
+    parser.add_argument(
+        "--graph-prefix",
+        default="lapse",
+        help="Graph namespace; use lapse:test:wp2r2:demo for isolated verification.",
+    )
     args = parser.parse_args()
-    policies, carriers = load_policy_file(ROOT_DIR / "fixtures/policy.yaml")
-    shared = policy_graph()
-    g = user_graph(args.uid)
+    policies, _ = load_policy_file(ROOT_DIR / "lapse/policy/services.yaml")
+    _, carriers = load_policy_file(ROOT_DIR / "lapse/policy/carriers.yaml")
+    shared = graph(f"{args.graph_prefix}:policy")
+    g = graph(f"{args.graph_prefix}:u:{args.uid}")
     _drop(shared)
     _drop(g)
-    write_policy_graph(policies, carriers)
+    write_policy_graph(policies, carriers, g=shared)
     load_persona(g, policies, carriers)
     for loaded in (shared, g):
         nodes = run(loaded, "graph_node_count").rows[0]["count"]
         edges = run(loaded, "graph_edge_count").rows[0]["count"]
         print(f"{loaded.name}: {nodes} nodes, {edges} edges")
+    for row in run(g, "fixture_method_counts").rows:
+        status = "modelled" if row["modelled"] else "unknown, not safe"
+        print(f"{row['account_id']}: {row['method_count']} methods ({status})")
 
 
 if __name__ == "__main__":

@@ -1,569 +1,355 @@
-# Reviewed 2026-10-17. See docs/policy-notes.md for scope and unresolved requirements.
-# Methods are AND within needs_roles, OR across methods. An identifier is not inbox possession.
-# modelled:false is unknown, not safe; retained methods are only documented subsets.
-# Tier 3 requires lists can be incomplete. Empty does not establish proof-free changes.
-# Notification patterns are best-effort completion candidates, not captured email fixtures.
+# Single-proof templates require no enrolled SMS/TOTP; missing evidence is not proof MFA is off.
+# Change requirements assume an authenticated session; tier 3 may need additional proof.
 services:
-  # Recovery is risk-adaptive: phone/email OTP alone is not guaranteed to reset Google.
-  # Password-only/passkey profiles cannot be selected by this schema. Email change here is recovery email.
-  - service: {id: google, name: Google, domains: [google.com, accounts.google.com, notifications.google.com], category: identity, modelled: false, doc_url: 'https://support.google.com/accounts/answer/183723'}
+  # Standard recovery-contact paths; Google can request familiar-device proof or delay recovery.
+  # The reset variants retain the enrolled second factor; recovery email is not the Gmail inbox.
+  - service: {id: google, name: Google, domains: [google.com, accounts.google.com, notifications.google.com], category: identity, modelled: true, doc_url: 'https://support.google.com/accounts/answer/183723'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_sms, kind: login, label: 'Password and configured SMS second factor', needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.google.com/accounts/answer/185839'}
-      - {id: login_password_totp, kind: login, label: 'Password and configured authenticator code', needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.google.com/accounts/answer/185839'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.google.com/accounts/answer/27441'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.google.com/accounts/answer/185839'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.google.com/accounts/answer/185839'}
+      - {id: reset_recovery_phone, kind: reset, label: Reset password through recovery phone, needs_roles: [recovery_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.google.com/accounts/answer/7682439'}
+      - {id: reset_recovery_phone_then_sms, kind: reset, label: Reset through recovery phone then SMS, needs_roles: [recovery_phone, sms_2fa], needs_password: false, doc_url: 'https://support.google.com/accounts/answer/7682439'}
+      - {id: reset_recovery_phone_then_totp, kind: reset, label: Reset through recovery phone then TOTP, needs_roles: [recovery_phone, totp_device], needs_password: false, doc_url: 'https://support.google.com/accounts/answer/7682439'}
+      - {id: reset_recovery_email, kind: reset, label: Reset password through recovery email, needs_roles: [recovery_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.google.com/accounts/answer/7682439'}
+      - {id: reset_recovery_email_then_sms, kind: reset, label: Reset through recovery email then SMS, needs_roles: [recovery_email, sms_2fa], needs_password: false, doc_url: 'https://support.google.com/accounts/answer/7682439'}
+      - {id: reset_recovery_email_then_totp, kind: reset, label: Reset through recovery email then TOTP, needs_roles: [recovery_email, totp_device], needs_password: false, doc_url: 'https://support.google.com/accounts/answer/7682439'}
     change:
-      # Assisted preparation hints; Google can request more proof or defer sensitive changes.
       - {root_kind: phone, tier: 3, requires: [password, new_otp], settings_url: 'https://myaccount.google.com/signinoptions/rescuephone', recipe: null, confirmation_patterns: ['(?i)recovery phone.{0,60}(?:was|has been) (?:changed|updated)'], doc_url: 'https://support.google.com/accounts/answer/183723'}
       - {root_kind: email, tier: 3, requires: [password], settings_url: 'https://myaccount.google.com/recovery/email', recipe: null, confirmation_patterns: ['(?i)recovery email.{0,60}(?:was|has been) (?:changed|updated)'], doc_url: 'https://support.google.com/accounts/answer/183723'}
-  # Personal accounts only. Single-proof reset would bypass enabled 2SV, so omitted.
-  # Passwordless/2SV modes are account-specific. SMS is being phased out; adding a phone may be unavailable.
-  # Email change below replaces recovery/security email, not the primary sign-in alias.
-  - service: {id: microsoft, name: Microsoft, domains: [microsoft.com, accountprotection.microsoft.com, email.microsoft.com, microsoftonline.com], category: identity, modelled: false, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/manage/microsoft-account-security-info-verification-codes'}
+  # Personal accounts with configured security contacts; email-code login needs an eligible external alias.
+  # Two-step reset uses two different proofs. Phone plus the same SMS factor is not two proofs.
+  # Email-only 2SV, passwordless-only mode and work/school tenant rules are not represented.
+  - service: {id: microsoft, name: Microsoft, domains: [microsoft.com, accountprotection.microsoft.com, email.microsoft.com, microsoftonline.com], category: identity, modelled: true, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/manage/microsoft-account-security-info-verification-codes'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_recovery_email, kind: login, label: 'Password and configured email security code', needs_roles: [recovery_email], needs_password: true, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
-      - {id: login_password_totp, kind: login, label: 'Password and configured authenticator code', needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
-      - {id: reset_recovery_email_totp, kind: reset, label: 'Reset using recovery email and authenticator codes', needs_roles: [recovery_email, totp_device], needs_password: false, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-go-passwordless-with-your-microsoft-account'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
+      - {id: reset_recovery_email, kind: reset, label: Reset password through recovery email, needs_roles: [recovery_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/manage/reset-a-forgotten-microsoft-account-password'}
+      - {id: reset_recovery_email_then_sms, kind: reset, label: Reset through recovery email then SMS, needs_roles: [recovery_email, sms_2fa], needs_password: false, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
+      - {id: reset_recovery_email_then_totp, kind: reset, label: Reset through recovery email then TOTP, needs_roles: [recovery_email, totp_device], needs_password: false, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
+      - {id: reset_recovery_phone, kind: reset, label: Reset password through recovery phone, needs_roles: [recovery_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/manage/reset-a-forgotten-microsoft-account-password'}
+      - {id: reset_recovery_phone_then_totp, kind: reset, label: Reset through recovery phone then TOTP, needs_roles: [recovery_phone, totp_device], needs_password: false, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-go-passwordless-with-your-microsoft-account'}
+      - {id: login_phone_code, kind: login, label: Sign in with a code sent to the registered phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-go-passwordless-with-your-microsoft-account'}
+      - {id: login_password_recovery_email, kind: login, label: Password and configured security email code, needs_roles: [recovery_email], needs_password: true, doc_url: 'https://support.microsoft.com/en-us/accounts-billing/security/how-to-use-two-step-verification-with-your-microsoft-account'}
     change:
       - {root_kind: phone, tier: 3, requires: [new_otp], settings_url: 'https://account.live.com/proofs/manage/additional', recipe: null, confirmation_patterns: ['(?i)security info.*(?:updated|replaced|changed)'], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/manage/microsoft-account-security-info-verification-codes'}
       - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://account.live.com/proofs/manage/additional', recipe: null, confirmation_patterns: ['(?i)security info.*(?:updated|replaced|changed)'], doc_url: 'https://support.microsoft.com/en-us/accounts-billing/manage/microsoft-account-security-info-verification-codes'}
-  # Trusted Apple devices are not TOTP devices. Device/passcode recovery, keys and waiting periods are omitted.
-  # No phone-only recovery claim. Assisted changes can redirect to a trusted device; its passcode is not an enum.
-  - service: {id: apple, name: Apple, domains: [apple.com, id.apple.com, email.apple.com, insideapple.apple.com], category: identity, modelled: false, doc_url: 'https://support.apple.com/en-us/102660'}
+  # Trusted-phone sign-in is modelled. Trusted Apple devices are not TOTP devices.
+  # Device/passcode recovery and recovery waiting periods are omitted.
+  - service: {id: apple, name: Apple, domains: [apple.com, id.apple.com, email.apple.com, insideapple.apple.com], category: identity, modelled: true, doc_url: 'https://support.apple.com/en-us/102660'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_sms, kind: login, label: 'Password and trusted-phone verification code', needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.apple.com/en-us/102660'}
+      - {id: login_password_sms, kind: login, label: Password and trusted-phone verification code, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.apple.com/en-us/102660'}
     change:
       - {root_kind: phone, tier: 3, requires: [new_otp], settings_url: 'https://account.apple.com/account/manage/section/security', recipe: null, confirmation_patterns: ['(?i)trusted phone number.{0,60}(?:was|has been) (?:changed|updated)'], doc_url: 'https://support.apple.com/en-us/122621'}
       - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://account.apple.com/account/manage/section/security', recipe: null, confirmation_patterns: ['(?i)(?:apple (?:account|id)|email address).*(?:changed|updated)'], doc_url: 'https://support.apple.com/en-us/109353'}
-  # Personal SMS/TOTP 2FA branches only. Password reset retains 2FA; no unconditional password-only bypass.
-  # Passkeys, security keys, managed users, social login and recovery codes are unrepresented.
-  # Phone edits include CAPTCHA; email edits may invoke sudo reauthentication, so both remain assisted.
-  - service: {id: github, name: GitHub, domains: [github.com, notifications.github.com], category: developer, modelled: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github'}
+  # Personal accounts; reset retains 2FA. recovery_email must be a verified backup address.
+  # Passkeys, recovery codes and enterprise-managed accounts are outside these methods.
+  - service: {id: github, name: GitHub, domains: [github.com, notifications.github.com], category: developer, modelled: true, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_totp, kind: login, label: 'Password and authenticator code', needs_roles: [totp_device], needs_password: true, doc_url: 'https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa/accessing-github-using-two-factor-authentication'}
-      - {id: login_password_sms, kind: login, label: 'Password and SMS second factor', needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa/accessing-github-using-two-factor-authentication'}
-      - {id: reset_login_email_totp, kind: reset, label: 'Primary email reset link and authenticator code', needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
-      - {id: reset_recovery_email_totp, kind: reset, label: 'Backup email reset link and authenticator code', needs_roles: [recovery_email, totp_device], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
-      - {id: reset_login_email_sms, kind: reset, label: 'Primary email reset link and SMS second factor', needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
-      - {id: reset_recovery_email_sms, kind: reset, label: 'Backup email reset link and SMS second factor', needs_roles: [recovery_email, sms_2fa], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa/accessing-github-using-two-factor-authentication'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa/accessing-github-using-two-factor-authentication'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
+      - {id: reset_recovery_email, kind: reset, label: Reset password through recovery email, needs_roles: [recovery_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
+      - {id: reset_recovery_email_then_sms, kind: reset, label: Reset through recovery email then SMS, needs_roles: [recovery_email, sms_2fa], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
+      - {id: reset_recovery_email_then_totp, kind: reset, label: Reset through recovery email then TOTP, needs_roles: [recovery_email, totp_device], needs_password: false, doc_url: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/updating-your-github-access-credentials'}
     change:
       - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://github.com/settings/emails', recipe: null, confirmation_patterns: ['(?i)(?:primary email|email address).*(?:changed|updated)'], doc_url: 'https://docs.github.com/en/account-and-profile/how-tos/email-preferences/changing-your-primary-email-address'}
       - {root_kind: phone, tier: 3, requires: [new_otp], settings_url: 'https://github.com/settings/security', recipe: null, confirmation_patterns: ['(?i)(?:two.factor|2FA|SMS).*(?:changed|configured|enabled)'], doc_url: 'https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa/changing-your-two-factor-authentication-method'}
-  # Amazon official help mirror supports password + SMS/TOTP. Account configuration controls OTP-only login.
-  # Retail .in help returned HTTP 503; regional equivalence is not live-verified. No unconditional reset bypass.
-  # Change help leaves proof destinations unspecified: requires=[] is unknown, not proof-free, at tier 3.
-  - service: {id: amazon_in, name: Amazon.in, domains: [amazon.in, account-update.amazon.in, marketplace.amazon.in, payments.amazon.in], category: shopping, modelled: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+  # Standard retail flows use the official Amazon help mirror; India availability is not live-verified.
+  # Code login applies to passwordless accounts. Enrolled 2SV disables the single-code branch.
+  - service: {id: amazon_in, name: Amazon.in, domains: [amazon.in, account-update.amazon.in, marketplace.amazon.in, payments.amazon.in], category: shopping, modelled: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_sms, kind: login, label: 'Password and enrolled SMS second factor', needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
-      - {id: login_password_totp, kind: login, label: 'Password and enrolled authenticator code', needs_roles: [totp_device], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GAM5QWMWMTFCHEQT'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_phone, kind: reset, label: Reset password through login phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_phone_then_sms, kind: reset, label: Reset through login phone then SMS, needs_roles: [login_phone, sms_2fa], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GAM5QWMWMTFCHEQT'}
+      - {id: login_phone_code, kind: login, label: Sign in with a code sent to the registered phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GAM5QWMWMTFCHEQT'}
     change:
       - {root_kind: phone, tier: 3, requires: [], settings_url: 'https://www.amazon.in/a/c/r', recipe: null, confirmation_patterns: ['(?i)(?:mobile|phone).*(?:changed|updated)'], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3JHAKLM2QKM6NXS'}
       - {root_kind: email, tier: 3, requires: [], settings_url: 'https://www.amazon.in/a/c/r', recipe: null, confirmation_patterns: ['(?i)(?:email|e-mail).*(?:changed|updated)'], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3JHAKLM2QKM6NXS'}
-  # OTP-only login and reset are omitted because account configuration and 2SV determine sufficiency.
-  # Change help leaves proof destinations unspecified: requires=[] is unknown, not proof-free, at tier 3.
-  - service: {id: amazon_com, name: Amazon.com, domains: [amazon.com, account-update.amazon.com, marketplace.amazon.com, payments.amazon.com], category: shopping, modelled: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+  # Code login applies to passwordless retail accounts; configured password knowledge is assumed
+  # for password login. Enrolled 2SV disables single-code sign-in and single-proof resets.
+  - service: {id: amazon_com, name: Amazon.com, domains: [amazon.com, account-update.amazon.com, marketplace.amazon.com, payments.amazon.com], category: shopping, modelled: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_sms, kind: login, label: 'Password and enrolled SMS second factor', needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
-      - {id: login_password_totp, kind: login, label: 'Password and enrolled authenticator code', needs_roles: [totp_device], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GAM5QWMWMTFCHEQT'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3PWZPU52FKN7PW4'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_phone, kind: reset, label: Reset password through login phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_phone_then_sms, kind: reset, label: Reset through login phone then SMS, needs_roles: [login_phone, sms_2fa], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GH3NM2YWEFEL2CQ4'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GAM5QWMWMTFCHEQT'}
+      - {id: login_phone_code, kind: login, label: Sign in with a code sent to the registered phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/GAM5QWMWMTFCHEQT'}
     change:
       - {root_kind: phone, tier: 3, requires: [], settings_url: 'https://www.amazon.com/a/c/r', recipe: null, confirmation_patterns: ['(?i)(?:mobile|phone).*(?:changed|updated)'], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3JHAKLM2QKM6NXS'}
       - {root_kind: email, tier: 3, requires: [], settings_url: 'https://www.amazon.com/a/c/r', recipe: null, confirmation_patterns: ['(?i)(?:email|e-mail).*(?:changed|updated)'], doc_url: 'https://digprjsurvey.amazon.com/csad/help/node/G3JHAKLM2QKM6NXS'}
-  # Variable security checks: no email-only/phone-only reset or invented email+SMS recovery guarantee.
-  # SMS login is for existing enrolled SMS 2FA; new enrollment may be authenticator-only by region.
-  # Contact edits start from an authenticated session and can prompt again.
-  - service: {id: paypal, name: PayPal, domains: [paypal.com, mail.paypal.com, e.paypal.com], category: payments, modelled: false, doc_url: 'https://www.paypal.com/us/cshelp/article/why-do-i-have-to-complete-a-security-check-help171'}
+  # Standard email/SMS security-check recovery; PayPal may request additional identity proof.
+  # SMS 2FA describes existing enrollments, whose availability varies by region.
+  - service: {id: paypal, name: PayPal, domains: [paypal.com, mail.paypal.com, e.paypal.com], category: payments, modelled: true, doc_url: 'https://www.paypal.com/us/cshelp/article/why-do-i-have-to-complete-a-security-check-help171'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password_sms, kind: login, label: 'Password and enrolled SMS second factor', needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.paypal.com/us/security/protect-your-account'}
-      - {id: login_password_totp, kind: login, label: 'Password and enrolled authenticator code', needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.paypal.com/us/security/protect-your-account'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.paypal.com/us/security/protect-your-account'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.paypal.com/us/security/protect-your-account'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.paypal.com/us/security/protect-your-account'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.paypal.com/c2/cshelp/article/i-forgot-my-password-how-do-i-reset-it-help143?locale.x=en_C2'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://www.paypal.com/c2/cshelp/article/i-forgot-my-password-how-do-i-reset-it-help143?locale.x=en_C2'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.paypal.com/c2/cshelp/article/i-forgot-my-password-how-do-i-reset-it-help143?locale.x=en_C2'}
     change:
       - {root_kind: phone, tier: 3, requires: [new_otp], settings_url: 'https://www.paypal.com/myaccount/settings/', recipe: null, confirmation_patterns: ['(?i)(?:phone|mobile).*(?:changed|updated)'], doc_url: 'https://www.paypal.com/us/cshelp/article/how-do-i-add-and-confirm-change-or-remove-a-phone-number-on-my-paypal-account-help265'}
       - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://www.paypal.com/myaccount/settings/', recipe: null, confirmation_patterns: ['(?i)(?:email|e-mail).*(?:changed|updated)'], doc_url: 'https://www.paypal.com/us/cshelp/article/how-do-i-add-remove-or-update-an-email-address-on-my-paypal-account-help135'}
-  # Explicit project template, not a claim about every Education tenant: password login only while active.
-  # Disable this hosting method after institution deactivation. Identifier email is not a possession need.
-  # A generic college has no unique sender domain; no self-service migration of the mailbox to Gmail exists.
+  # Institution password and enrolled-factor template; tenant policies can differ. No generic sender domain.
+  # Mailbox access stops when the account or mailbox closes; institutional recovery is omitted.
   - service: {id: college_workspace, name: College Google Workspace mailbox, domains: [], category: identity, modelled: true, doc_url: 'https://support.google.com/a/answer/6142901'}
     verified_at: 2026-10-17
     methods:
-      - {id: login_password, kind: login, label: 'Institution password while the mailbox remains active', needs_roles: [], needs_password: true, doc_url: 'https://support.google.com/a/answer/6142901'}
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.google.com/a/answer/6142901'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.google.com/accounts/answer/185839'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.google.com/accounts/answer/185839'}
     change: []
-  - service:
-      id: linkedin
-      name: LinkedIn
-      domains: [linkedin.com, e.linkedin.com, em.linkedin.com]
-      category: social
-      modelled: false
-      doc_url: https://www.linkedin.com/help/linkedin/answer/a1381088
+  # Phone reset applies only to the selected verified reset-enabled number.
+  # Unfamiliar-device approval and identity review may add challenges.
+  - service: {id: linkedin, name: LinkedIn, domains: [linkedin.com, e.linkedin.com, em.linkedin.com, cs.linkedin.com, el.linkedin.com], category: social, modelled: true, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1381088'}
     verified_at: 2026-10-17
-    # Optional MFA, app approvals, and reset-enabled phone selection cannot be expressed here.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        # Primary-inbox code can be replaced by app approval; listed conservatively.
-        requires: [password, email_otp_old, email_otp_new]
-        settings_url: https://www.linkedin.com/psettings/email
-        recipe: null
-        confirmation_patterns: ['(?i)email address.{0,60}(changed|updated)', '(?i)(changed|updated).{0,60}email address']
-        doc_url: https://www.linkedin.com/help/linkedin/answer/a518975
-      - root_kind: phone
-        tier: 3
-        # This is the desktop flow; app approval can replace the primary-email check.
-        requires: [password, email_otp_old, new_otp]
-        settings_url: https://www.linkedin.com/psettings/phone
-        recipe: null
-        confirmation_patterns: ['(?i)phone number.{0,60}(changed)', '(?i)(changed).{0,60}phone number']
-        doc_url: https://www.linkedin.com/help/linkedin/answer/a526162
-  - service:
-      id: x
-      name: X
-      domains: [x.com, twitter.com, e.twitter.com, info.twitter.com]
-      category: social
-      modelled: false
-      doc_url: https://help.x.com/en/managing-your-account/two-factor-authentication
-    verified_at: 2026-10-17
-    # Email/SMS reset is documented, but neither is a universal bypass of enabled 2FA.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        requires: [email_otp_new]
-        settings_url: https://x.com/settings/email
-        recipe: null
-        confirmation_patterns: ['(?i)(email address|email).{0,60}(changed|updated)', '(?i)(changed|updated).{0,60}email address']
-        doc_url: https://help.x.com/en/managing-your-account/how-to-update-your-email-address
-      - root_kind: phone
-        tier: 3
-        requires: [password, new_otp]
-        settings_url: https://x.com/settings/phone
-        recipe: null
-        confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)']
-        doc_url: https://help.x.com/en/managing-your-account/how-to-add-a-phone-number-to-your-account
-  - service:
-      id: instagram
-      name: Instagram
-      domains: [instagram.com, mail.instagram.com]
-      category: social
-      modelled: false
-      doc_url: https://www.facebook.com/help/943858526073065
-    verified_at: 2026-10-17
-    # Accounts Center linking, optional MFA, and recovery checks vary by account.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        # Detailed Instagram help was throttled. Empty means requirements unverified, not absent.
-        requires: []
-        settings_url: https://accountscenter.instagram.com/personal_info/contact_points/
-        recipe: null
-        confirmation_patterns: ['(?i)email address.{0,60}(was changed|has been changed)']
-        doc_url: https://www.facebook.com/help/943858526073065
-      - root_kind: phone
-        tier: 3
-        # Detailed Instagram help was throttled; user must follow the displayed challenges.
-        requires: []
-        settings_url: https://accountscenter.instagram.com/personal_info/contact_points/
-        recipe: null
-        confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)']
-        doc_url: https://www.facebook.com/help/943858526073065
-  - service:
-      id: facebook
-      name: Facebook
-      domains: [facebook.com, facebookmail.com, meta.com]
-      category: social
-      modelled: false
-      doc_url: https://www.facebook.com/help/943858526073065
-    verified_at: 2026-10-17
-    # Linked Meta accounts and optional second factors prevent a universal recovery template.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        # Password can be requested on removal of the old address.
-        requires: [password, email_otp_new]
-        settings_url: https://accountscenter.facebook.com/personal_info/contact_points/
-        recipe: null
-        confirmation_patterns: ['(?i)email address.{0,60}(changed)']
-        doc_url: https://www.facebook.com/help/ipad-app/224049364288051?locale=en_US
-      - root_kind: phone
-        tier: 3
-        # Specific phone help was throttled. Requirements remain unverified, not absent.
-        requires: []
-        settings_url: https://accountscenter.facebook.com/personal_info/contact_points/
-        recipe: null
-        confirmation_patterns: ['(?i)phone number.{0,60}(changed)']
-        doc_url: https://www.facebook.com/help/943858526073065
-  - service:
-      id: discord
-      name: Discord
-      domains: [discord.com, discordapp.com, email.discord.com]
-      category: social
-      modelled: false
-      doc_url: https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord
-    verified_at: 2026-10-17
-    # Reset requires the configured MFA code. SMS-only reset documentation concerns accidental accounts.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        requires: [email_otp_old, email_otp_new]
-        # Discord documents a User Settings > My Account dialog, not a stable web deep link.
-        settings_url: null
-        recipe: null
-        confirmation_patterns: ['(?i)email.{0,60}(changed|updated)']
-        doc_url: https://support.discord.com/hc/en-us/articles/4423385681175-How-to-Change-your-Discord-Account-s-Email
-      - root_kind: phone
-        tier: 3
-        # Documented removal requires password. Replacement verification is a separate guided step.
-        requires: [password]
-        settings_url: null
-        recipe: null
-        confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)']
-        doc_url: https://support.discord.com/hc/en-us/articles/4413460214807-How-to-Remove-a-Phone-Number-From-a-Discord-Account
-  - service:
-      id: reddit
-      name: Reddit
-      domains: [reddit.com, redditmail.com, redditforcommunity.com]
-      category: social
-      modelled: false
-      doc_url: https://support.reddithelp.com/hc/en-us/p/redditor_help_center
-    verified_at: 2026-10-17
-    # Password, phone-only, SSO, and MFA account modes need conditional templates.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        # Verification is documented; password/old-inbox challenges vary and were not established.
-        requires: [email_otp_new]
-        settings_url: https://www.reddit.com/settings/account
-        recipe: null
-        confirmation_patterns: ['(?i)email address.{0,60}(changed|updated)']
-        doc_url: https://support.reddithelp.com/hc/en-us/articles/14569265059860-How-do-I-register-or-add-my-email-to-my-Reddit-account
-      - root_kind: phone
-        tier: 3
-        requires: [old_otp, new_otp]
-        settings_url: https://www.reddit.com/settings/account
-        recipe: null
-        confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)']
-        doc_url: https://support.reddithelp.com/hc/en-us/articles/14568830965524-How-do-I-manage-my-phone-number-associated-with-my-Reddit-account
-  - service:
-      id: dropbox
-      name: Dropbox
-      domains: [dropbox.com, em-s.dropbox.com]
-      category: storage
-      modelled: false
-      doc_url: https://help.dropbox.com/account-access/enable-2-factor-authentication
-    verified_at: 2026-10-17
-    # Password, email reset, optional SMS/TOTP/passkey and team SSO cannot be
-    # selected per account by this schema. Never compile an email-only MFA bypass.
-    # SMS 2FA was also discontinued in some countries from 2026-01-09.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        requires: [password, email_otp_new]
-        settings_url: https://www.dropbox.com/account/general
-        recipe: null
-        # Best-effort completion notification, not the initial verification request.
-        confirmation_patterns: ['(?i)email address (?:has been |was )?(?:changed|updated)']
-        doc_url: https://help.dropbox.com/account-settings/change-email
-      - root_kind: phone
-        tier: 3
-        requires: [password]
-        settings_url: https://www.dropbox.com/account/security
-        recipe: null
-        # Help documents password reauthentication, but not the complete change challenge.
-        confirmation_patterns: ['(?i)(?:phone number|two[- ](?:step|factor) verification).{0,60}(?:changed|updated)']
-        doc_url: https://help.dropbox.com/account-access/enable-2-factor-authentication
-  - service:
-      id: slack
-      name: Slack
-      domains: [slack.com, slack-mail.com]
-      category: productivity
-      modelled: false
-      doc_url: https://slack.com/help/articles/212681477-Sign-in-to-Slack
-    verified_at: 2026-10-17
-    # Email codes are real, but workspace SSO and required MFA change the AND gate.
-    # The schema has neither workspace authentication profiles nor method conditions.
-    methods: []
-    change:
-      - root_kind: email
-        tier: 3
-        requires: [password, email_otp_new]
-        settings_url: https://my.slack.com/account/settings
-        recipe: null
-        # SSO owners can restrict editing. A new-email confirmation link is not completion.
-        confirmation_patterns: ['(?i)email address (?:has been |was )?(?:changed|updated)']
-        doc_url: https://slack.com/help/articles/207262907-Change-your-email-address
-      - root_kind: phone
-        tier: 3
-        requires: [password, new_otp]
-        settings_url: https://my.slack.com/account/settings
-        recipe: null
-        # SMS 2FA must be disabled and re-enabled to change its number; workspace rules apply.
-        confirmation_patterns: ['(?i)two[- ]factor authentication.{0,60}(?:enabled|updated)']
-        doc_url: https://slack.com/help/articles/204509068-Set-up-two-factor-authentication
-  - service:
-      id: spotify
-      name: Spotify
-      domains: [spotify.com, accounts.spotify.com, email.spotify.com, mail.spotify.com]
-      category: entertainment
-      modelled: false
-      doc_url: https://support.spotify.com/us/article/login-methods/
-    verified_at: 2026-10-17
-    # Phone-only accounts may have no password. Unconditional password login is omitted.
-    # Consumer accounts only; incomplete local/linked-provider login modes remain unknown.
-    # login_phone must mean an enabled phone login, not a billing/contact-only number.
     methods:
-      - id: reset_login_email
-        kind: reset
-        label: Reset password using the account email
-        needs_roles: [login_email]
-        needs_password: false
-        doc_url: https://support.spotify.com/us/article/reset-password/
-      - id: login_phone_code
-        kind: login
-        label: Sign in using an SMS code for a phone-registered account
-        needs_roles: [login_phone]
-        needs_password: false
-        doc_url: https://support.spotify.com/vn-en/article/phone-number-login-help/
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1381088'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1381088'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
+      - {id: reset_phone, kind: reset, label: Reset password through login phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
+      - {id: reset_phone_then_sms, kind: reset, label: Reset through login phone then SMS, needs_roles: [login_phone, sms_2fa], needs_password: false, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
+      - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://www.linkedin.com/help/linkedin/answer/a1382101'}
     change:
-      - root_kind: email
-        tier: 3
-        requires: [password]
-        settings_url: https://www.spotify.com/account/profile/
-        recipe: null
-        # Official steps do not specify a new-inbox challenge; do not advertise Tier 1.
-        confirmation_patterns: ['(?i)(?:email|email address).{0,50}(?:changed|updated)']
-        doc_url: https://support.spotify.com/us/article/change-email-address/
-    # No documented phone-replacement procedure found; adding an email is the supported fallback.
-  - service:
-      id: netflix
-      name: Netflix
-      domains: [netflix.com, account.netflix.com, join.netflix.com, mailer.netflix.com, members.netflix.com, partner.netflix.com]
-      category: entertainment
-      modelled: true
-      doc_url: https://help.netflix.com/en/node/470
+      - {root_kind: email, tier: 3, requires: [password, email_otp_old, email_otp_new], settings_url: 'https://www.linkedin.com/psettings/email', recipe: null, confirmation_patterns: ['(?i)email address.{0,60}(changed|updated)', '(?i)(changed|updated).{0,60}email address'], doc_url: 'https://www.linkedin.com/help/linkedin/answer/a518975'}
+      - {root_kind: phone, tier: 3, requires: [password, email_otp_old, new_otp], settings_url: 'https://www.linkedin.com/psettings/phone', recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed)', '(?i)(changed).{0,60}phone number'], doc_url: 'https://www.linkedin.com/help/linkedin/answer/a526162'}
+  # Reset retains enrolled 2FA. SMS 2FA availability depends on account eligibility.
+  - service: {id: x, name: X, domains: [x.com, twitter.com, e.twitter.com, info.twitter.com], category: social, modelled: true, doc_url: 'https://help.x.com/en/managing-your-account/two-factor-authentication'}
     verified_at: 2026-10-17
-    # Primary subscription account only; profile-only email access is not account control.
     methods:
-      - id: login_password
-        kind: login
-        label: Sign in with the account password
-        needs_roles: []
-        needs_password: true
-        doc_url: https://help.netflix.com/en/node/470
-      - id: reset_login_email
-        kind: reset
-        label: Reset password through the primary account email
-        needs_roles: [login_email]
-        needs_password: false
-        doc_url: https://help.netflix.com/en/node/365
-      - id: reset_recovery_phone
-        kind: reset
-        label: Reset password using an SMS code to the linked recovery phone
-        needs_roles: [recovery_phone]
-        needs_password: false
-        doc_url: https://help.netflix.com/en/node/365
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.x.com/en/managing-your-account/two-factor-authentication'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://help.x.com/en/managing-your-account/two-factor-authentication'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://help.x.com/en/managing-your-account/two-factor-authentication'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
+      - {id: reset_phone, kind: reset, label: Reset password through login phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
+      - {id: reset_phone_then_sms, kind: reset, label: Reset through login phone then SMS, needs_roles: [login_phone, sms_2fa], needs_password: false, doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
+      - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
     change:
-      - root_kind: email
-        tier: 3
-        # Identity confirmation is adaptive; docs do not specify a universal factor.
-        requires: []
-        settings_url: https://www.netflix.com/email
-        recipe: null
-        confirmation_patterns: ['(?i)(?:email|email address).{0,50}(?:changed|updated)']
-        doc_url: https://help.netflix.com/en/node/134335
-      - root_kind: phone
-        tier: 3
-        requires: [new_otp]
-        settings_url: https://www.netflix.com/phonenumber
-        recipe: null
-        # Additional identity challenge is unspecified; new SMS confirms the replacement.
-        confirmation_patterns: ['(?i)phone number.{0,50}(?:changed|updated)']
-        doc_url: https://help.netflix.com/en/node/25970
-  - service:
-      id: swiggy
-      name: Swiggy
-      domains: [swiggy.com, swiggy.in]
-      category: food
-      modelled: false
-      doc_url: https://www.swiggy.com/swiggy_customer_care
+      - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://x.com/settings/email', recipe: null, confirmation_patterns: ['(?i)(email address|email).{0,60}(changed|updated)', '(?i)(changed|updated).{0,60}email address'], doc_url: 'https://help.x.com/en/managing-your-account/how-to-update-your-email-address'}
+      - {root_kind: phone, tier: 3, requires: [password, new_otp], settings_url: 'https://x.com/settings/phone', recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)'], doc_url: 'https://help.x.com/en/managing-your-account/how-to-add-a-phone-number-to-your-account'}
+  # Local account flows; linked Meta identities, WhatsApp and recovery reviews are omitted.
+  - service: {id: instagram, name: Instagram, domains: [instagram.com, mail.instagram.com], category: social, modelled: true, doc_url: 'https://www.facebook.com/help/943858526073065'}
     verified_at: 2026-10-17
-    # Public docs conflict with an assumed OTP-only flow: the official beginner guide
-    # describes a password, and /2fa shows an additional unusual-login approval.
-    # No official help establishes sufficient takeover factors or contact-change steps.
-    methods: []
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.facebook.com/help/instagram/1124604297705184?locale=ja_JP'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.facebook.com/help/instagram/1124604297705184?locale=ja_JP'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.facebook.com/help/instagram/1124604297705184?locale=ja_JP'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.facebook.com/help/instagram/409847499070242?locale=ru_RU'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://www.facebook.com/help/instagram/409847499070242?locale=ru_RU'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.facebook.com/help/instagram/409847499070242?locale=ru_RU'}
+      - {id: reset_phone, kind: reset, label: Reset password through login phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.facebook.com/help/instagram/409847499070242?locale=ru_RU'}
+      - {id: reset_phone_then_sms, kind: reset, label: Reset through login phone then SMS, needs_roles: [login_phone, sms_2fa], needs_password: false, doc_url: 'https://www.facebook.com/help/instagram/409847499070242?locale=ru_RU'}
+      - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://www.facebook.com/help/instagram/409847499070242?locale=ru_RU'}
+    change:
+      - {root_kind: email, tier: 3, requires: [], settings_url: 'https://accountscenter.instagram.com/personal_info/contact_points/', recipe: null, confirmation_patterns: ['(?i)email address.{0,60}(was changed|has been changed)'], doc_url: 'https://www.facebook.com/help/943858526073065'}
+      - {root_kind: phone, tier: 3, requires: [], settings_url: 'https://accountscenter.instagram.com/personal_info/contact_points/', recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)'], doc_url: 'https://www.facebook.com/help/943858526073065'}
+  # Local account flows; linked accounts, security keys and identity reviews are omitted.
+  - service: {id: facebook, name: Facebook, domains: [facebook.com, facebookmail.com, meta.com], category: social, modelled: true, doc_url: 'https://www.facebook.com/help/943858526073065'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.facebook.com/help/1052552578831700?locale=es_LA'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.facebook.com/help/1052552578831700?locale=es_LA'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.facebook.com/help/1052552578831700?locale=es_LA'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.facebook.com/help/105487009541643?locale=fr_CA'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://www.facebook.com/help/105487009541643?locale=fr_CA'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.facebook.com/help/105487009541643?locale=fr_CA'}
+      - {id: reset_phone, kind: reset, label: Reset password through login phone, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.facebook.com/help/105487009541643?locale=fr_CA'}
+      - {id: reset_phone_then_sms, kind: reset, label: Reset through login phone then SMS, needs_roles: [login_phone, sms_2fa], needs_password: false, doc_url: 'https://www.facebook.com/help/105487009541643?locale=fr_CA'}
+      - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://www.facebook.com/help/105487009541643?locale=fr_CA'}
+    change:
+      - {root_kind: email, tier: 3, requires: [password, email_otp_new], settings_url: 'https://accountscenter.facebook.com/personal_info/contact_points/', recipe: null, confirmation_patterns: ['(?i)email address.{0,60}(changed)'], doc_url: 'https://www.facebook.com/help/ipad-app/224049364288051?locale=en_US'}
+      - {root_kind: phone, tier: 3, requires: [], settings_url: 'https://accountscenter.facebook.com/personal_info/contact_points/', recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed)'], doc_url: 'https://www.facebook.com/help/943858526073065'}
+  # Password reset requires the configured MFA code; SMS is an enrolled backup option.
+  # Phone-only accidental-account recovery is not a general consumer reset.
+  - service: {id: discord, name: Discord, domains: [discord.com, discordapp.com, email.discord.com], category: social, modelled: true, doc_url: 'https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://support.discord.com/hc/en-us/articles/219576828-Setting-up-Multi-Factor-Authentication'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.discord.com/hc/en-us/articles/219576828-Setting-up-Multi-Factor-Authentication'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord'}
+    change:
+      - {root_kind: email, tier: 3, requires: [email_otp_old, email_otp_new], settings_url: null, recipe: null, confirmation_patterns: ['(?i)email.{0,60}(changed|updated)'], doc_url: 'https://support.discord.com/hc/en-us/articles/4423385681175-How-to-Change-your-Discord-Account-s-Email'}
+      - {root_kind: phone, tier: 3, requires: [password], settings_url: null, recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)'], doc_url: 'https://support.discord.com/hc/en-us/articles/4413460214807-How-to-Remove-a-Phone-Number-From-a-Discord-Account'}
+  # Local password accounts with optional authenticator 2FA; SSO and phone-only modes differ.
+  - service: {id: reddit, name: Reddit, domains: [reddit.com, redditmail.com, redditforcommunity.com], category: social, modelled: true, doc_url: 'https://support.reddithelp.com/hc/en-us/p/redditor_help_center'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.reddithelp.com/hc/en-us/articles/360043470031-What-is-two-factor-authentication-and-how-do-I-set-it-up'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://support.reddithelp.com/hc/en-us/articles/360043470031-What-is-two-factor-authentication-and-how-do-I-set-it-up'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.reddithelp.com/hc/en-us/articles/16976987585300-Why-haven-t-I-received-my-password-reset-email'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://support.reddithelp.com/hc/en-us/articles/16976987585300-Why-haven-t-I-received-my-password-reset-email'}
+    change:
+      - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://www.reddit.com/settings/account', recipe: null, confirmation_patterns: ['(?i)email address.{0,60}(changed|updated)'], doc_url: 'https://support.reddithelp.com/hc/en-us/articles/14569265059860-How-do-I-register-or-add-my-email-to-my-Reddit-account'}
+      - {root_kind: phone, tier: 3, requires: [old_otp, new_otp], settings_url: 'https://www.reddit.com/settings/account', recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)'], doc_url: 'https://support.reddithelp.com/hc/en-us/articles/14568830965524-How-do-I-manage-my-phone-number-associated-with-my-Reddit-account'}
+  # Local accounts; reset retains SMS/TOTP. Team SSO and recovery codes are omitted.
+  # SMS was discontinued in some countries in 2026; the demo assumes an existing supported enrollment.
+  - service: {id: dropbox, name: Dropbox, domains: [dropbox.com, em-s.dropbox.com], category: storage, modelled: true, doc_url: 'https://help.dropbox.com/account-access/enable-2-factor-authentication'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.dropbox.com/security/password-reset'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://help.dropbox.com/account-access/enable-2-factor-authentication'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://help.dropbox.com/account-access/enable-2-factor-authentication'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.dropbox.com/security/password-reset'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://help.dropbox.com/security/password-reset'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://help.dropbox.com/security/password-reset'}
+    change:
+      - {root_kind: email, tier: 3, requires: [password, email_otp_new], settings_url: 'https://www.dropbox.com/account/general', recipe: null, confirmation_patterns: ['(?i)email address (?:has been |was )?(?:changed|updated)'], doc_url: 'https://help.dropbox.com/account-settings/change-email'}
+      - {root_kind: phone, tier: 3, requires: [password], settings_url: 'https://www.dropbox.com/account/security', recipe: null, confirmation_patterns: ['(?i)(?:phone number|two[- ](?:step|factor) verification).{0,60}(?:changed|updated)'], doc_url: 'https://help.dropbox.com/account-access/enable-2-factor-authentication'}
+  # Local workspace authentication; email code or magic link still requires enrolled 2FA.
+  # SSO-enforced workspaces and passkeys need separate account configuration.
+  - service: {id: slack, name: Slack, domains: [slack.com, slack-mail.com], category: productivity, modelled: true, doc_url: 'https://slack.com/help/articles/212681477-Sign-in-to-Slack'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://slack.com/help/articles/212681477-Sign-in-to-Slack'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://slack.com/help/articles/204509068-Set-up-two-factor-authentication'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://slack.com/help/articles/204509068-Set-up-two-factor-authentication'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://slack.com/help/articles/201909068-Reset-your-password'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://slack.com/help/articles/201909068-Reset-your-password'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://slack.com/help/articles/201909068-Reset-your-password'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://slack.com/help/articles/212681477-Sign-in-to-Slack'}
+      - {id: login_email_code_then_sms, kind: login, label: Email code and enrolled SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://slack.com/help/articles/212681477-Sign-in-to-Slack'}
+      - {id: login_email_code_then_totp, kind: login, label: Email code and enrolled TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://slack.com/help/articles/212681477-Sign-in-to-Slack'}
+    change:
+      - {root_kind: email, tier: 3, requires: [password, email_otp_new], settings_url: 'https://my.slack.com/account/settings', recipe: null, confirmation_patterns: ['(?i)email address (?:has been |was )?(?:changed|updated)'], doc_url: 'https://slack.com/help/articles/207262907-Change-your-email-address'}
+      - {root_kind: phone, tier: 3, requires: [password, new_otp], settings_url: 'https://my.slack.com/account/settings', recipe: null, confirmation_patterns: ['(?i)two[- ]factor authentication.{0,60}(?:enabled|updated)'], doc_url: 'https://slack.com/help/articles/204509068-Set-up-two-factor-authentication'}
+  # Consumer accounts; login_phone denotes enabled phone login, not billing/contact data.
+  # Password sign-in assumes a configured password; phone-only and social-only accounts can differ.
+  - service: {id: spotify, name: Spotify, domains: [spotify.com, accounts.spotify.com, email.spotify.com, mail.spotify.com], category: entertainment, modelled: true, doc_url: 'https://support.spotify.com/us/article/login-methods/'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.spotify.com/us/article/login-methods/'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.spotify.com/us/article/reset-password/'}
+      - {id: login_phone_code, kind: login, label: Sign in with SMS code for a phone-registered account, needs_roles: [login_phone], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://support.spotify.com/ae-en/article/cannot-remember-login/'}
+    change:
+      - {root_kind: email, tier: 3, requires: [password], settings_url: 'https://www.spotify.com/account/profile/', recipe: null, confirmation_patterns: ['(?i)(?:email|email address).{0,50}(?:changed|updated)'], doc_url: 'https://support.spotify.com/us/article/change-email-address/'}
+  # Primary subscription account only; profile email access does not grant account control.
+  - service: {id: netflix, name: Netflix, domains: [netflix.com, account.netflix.com, join.netflix.com, mailer.netflix.com, members.netflix.com, partner.netflix.com], category: entertainment, modelled: true, doc_url: 'https://help.netflix.com/en/node/470'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, doc_url: 'https://help.netflix.com/en/node/470'}
+      - {id: reset_login_email, kind: reset, label: Reset password through the primary account email, needs_roles: [login_email], needs_password: false, doc_url: 'https://help.netflix.com/en/node/365'}
+      - {id: reset_recovery_phone, kind: reset, label: Reset password using an SMS code to the linked recovery phone, needs_roles: [recovery_phone], needs_password: false, doc_url: 'https://help.netflix.com/en/node/365'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the account owner, needs_roles: [login_email], needs_password: false, doc_url: 'https://help.netflix.com/en/node/529303577956964'}
+      - {id: login_phone_code, kind: login, label: Sign in with a code sent to the account owner, needs_roles: [login_phone], needs_password: false, doc_url: 'https://help.netflix.com/en/node/529303577956964'}
+    change:
+      - {root_kind: email, tier: 3, requires: [], settings_url: 'https://www.netflix.com/email', recipe: null, confirmation_patterns: ['(?i)(?:email|email address).{0,50}(?:changed|updated)'], doc_url: 'https://help.netflix.com/en/node/134335'}
+      - {root_kind: phone, tier: 3, requires: [new_otp], settings_url: 'https://www.netflix.com/phonenumber', recipe: null, confirmation_patterns: ['(?i)phone number.{0,50}(?:changed|updated)'], doc_url: 'https://help.netflix.com/en/node/25970'}
+  # Consumer phone OTP sign-in inspected on the public site, without requesting a code.
+  # Unusual logins may require another approval at /2fa; no contact-change procedure is established.
+  - service: {id: swiggy, name: Swiggy, domains: [swiggy.com, swiggy.in], category: food, modelled: true, doc_url: 'https://www.swiggy.com/swiggy_customer_care'}
+    verified_at: 2026-10-17
+    methods:
+      - {id: login_phone_otp, kind: login, label: Sign in using the registered mobile OTP, needs_roles: [login_phone], needs_password: false, doc_url: 'https://www.swiggy.com/'}
     change: []
-  - service:
-      id: zomato
-      name: Zomato
-      domains: [zomato.com, zomatomail.com]
-      category: food
-      modelled: false
-      doc_url: https://www.zomato.com/policies/privacy/
+  # Registered consumer mobile OTP flow documented by the official consumer MCP consent screen.
+  # No merchant flow is used as evidence; contact changes remain unverified.
+  - service: {id: zomato, name: Zomato, domains: [zomato.com, zomatomail.com], category: food, modelled: true, doc_url: 'https://www.zomato.com/policies/privacy/'}
     verified_at: 2026-10-17
-    # Search found merchant OTP login and a consumer MCP consent screen, not official
-    # consumer recovery/contact-change help. Do not generalize merchant authentication.
-    methods: []
-    change: []
-  - service:
-      id: paytm
-      name: Paytm
-      domains: [paytm.com, paytm.in]
-      category: payments
-      modelled: true
-      doc_url: https://paytm.com/support/upi/deleted-paytm-app-what-happens-account-upi
-    verified_at: 2026-10-17
-    # Account/profile access only: this method does NOT grant UPI PIN knowledge,
-    # debit-card possession or permission to make payments from a linked bank.
     methods:
-      - id: login_phone_code
-        kind: login
-        label: Restore Paytm account access using the registered-number OTP
-        needs_roles: [login_phone]
-        needs_password: false
-        doc_url: https://paytm.com/support/upi/deleted-paytm-app-what-happens-account-upi
-    change:
-      - root_kind: phone
-        tier: 3
-        requires: [old_otp, new_otp]
-        # Documented consumer flow is in the app; no exact browser settings URL is published.
-        settings_url: null
-        recipe: null
-        confirmation_patterns: ['(?i)(?:phone|mobile) number.{0,60}(?:changed|updated)']
-        doc_url: https://support.paytm.com/cst-support/how-to-update-your-phone-number-on-paytm
-      - root_kind: email
-        tier: 3
-        requires: [old_otp, email_otp_new]
-        settings_url: null
-        recipe: null
-        confirmation_patterns: ['(?i)email (?:id|address).{0,60}(?:changed|updated)']
-        doc_url: https://support.paytm.com/cst-support/want-to-update-your-email-id-here-are-the-steps-to-follow
-  - service:
-      id: generic_in_bank
-      name: Indian bank (template)
-      # Generic template cannot attribute any bank's senders without a bank identity.
-      domains: []
-      category: banking
-      modelled: false
-      doc_url: https://www.hdfc.bank.in/need-help/net-banking-faqs
+      - {id: login_phone_otp, kind: login, label: Sign in using the registered mobile OTP, needs_roles: [login_phone], needs_password: false, doc_url: 'https://mcp-server.zomato.com/consent'}
+    change: []
+  # OTP grants account/profile access, not a UPI PIN or permission to spend from a linked bank.
+  - service: {id: paytm, name: Paytm, domains: [paytm.com, paytm.in], category: payments, modelled: true, doc_url: 'https://paytm.com/support/upi/deleted-paytm-app-what-happens-account-upi'}
     verified_at: 2026-10-17
-    # Banks differ; cards, customer IDs, PINs and identity checks are outside UseRole.
-    # No phone-only takeover or password-only login is asserted for this template.
+    methods:
+      - {id: login_phone_code, kind: login, label: Restore Paytm account access using the registered-number OTP, needs_roles: [login_phone], needs_password: false, doc_url: 'https://paytm.com/support/upi/deleted-paytm-app-what-happens-account-upi'}
+    change:
+      - {root_kind: phone, tier: 3, requires: [old_otp, new_otp], settings_url: null, recipe: null, confirmation_patterns: ['(?i)(?:phone|mobile) number.{0,60}(?:changed|updated)'], doc_url: 'https://support.paytm.com/cst-support/how-to-update-your-phone-number-on-paytm'}
+      - {root_kind: email, tier: 3, requires: [old_otp, email_otp_new], settings_url: null, recipe: null, confirmation_patterns: ['(?i)email (?:id|address).{0,60}(?:changed|updated)'], doc_url: 'https://support.paytm.com/cst-support/want-to-update-your-email-id-here-are-the-steps-to-follow'}
+  # Unknown bank identity: no universal login/reset or sender domain can be asserted.
+  # Bank-specific cards, PINs and identity proofs require a real bank policy; T4 is an assisted fallback.
+  - service: {id: generic_in_bank, name: Indian bank (template), domains: [], category: banking, modelled: false, doc_url: 'https://www.hdfc.bank.in/need-help/net-banking-faqs'}
+    verified_at: 2026-10-17
     methods: []
     change:
-      - root_kind: phone
-        tier: 4
-        requires: [in_person]
-        settings_url: null
-        recipe: null
-        confirmation_patterns: ['(?i)(?:registered )?mobile number.{0,60}(?:changed|updated)']
-        doc_url: https://www.hdfc.bank.in/savings-account/services/update-mobile-number
-      - root_kind: email
-        tier: 4
-        requires: [in_person]
-        settings_url: null
-        recipe: null
-        confirmation_patterns: ['(?i)(?:registered )?email (?:id|address).{0,60}(?:changed|updated)']
-        doc_url: https://v.hdfcbank.com/content/dam/hdfc-aem-microsites/common-pdfs/pdf/Eage_banking_change_of_address_form.pdf
-  - service:
-      id: notion
-      name: Notion
-      domains: [notion.so, mail.notion.so, notion.com, mail.notion.com]
-      category: productivity
-      modelled: false
-      doc_url: https://www.notion.com/help/log-in-and-out
+      - {root_kind: phone, tier: 4, requires: [in_person], settings_url: null, recipe: null, confirmation_patterns: ['(?i)(?:registered )?mobile number.{0,60}(?:changed|updated)'], doc_url: 'https://www.hdfc.bank.in/savings-account/services/update-mobile-number'}
+      - {root_kind: email, tier: 4, requires: [in_person], settings_url: null, recipe: null, confirmation_patterns: ['(?i)(?:registered )?email (?:id|address).{0,60}(?:changed|updated)'], doc_url: 'https://v.hdfcbank.com/content/dam/hdfc-aem-microsites/common-pdfs/pdf/Eage_banking_change_of_address_form.pdf'}
+  # Local account flows with optional SMS/TOTP. Enforced SSO and passkeys are not represented.
+  # Email-code login is excluded when a second factor is enrolled; use password plus that factor.
+  - service: {id: notion, name: Notion, domains: [notion.so, mail.notion.so, notion.com, mail.notion.com], category: productivity, modelled: true, doc_url: 'https://www.notion.com/help/log-in-and-out'}
     verified_at: 2026-10-17
-    # Email codes, optional passwords, MFA, passkeys and enforced SSO need account-mode predicates.
-    # An unconditional email-only template would bypass enrolled MFA. Unknown, not safe.
-    methods: []
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.notion.com/help/log-in-and-out'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.notion.com/help/two-step-verification'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.notion.com/help/two-step-verification'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.notion.com/help/cant-log-in'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://www.notion.com/help/cant-log-in'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.notion.com/help/cant-log-in'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.notion.com/help/log-in-and-out'}
     change:
-      - root_kind: email
-        tier: 1
-        requires: [email_otp_new]
-        # Settings is a workspace/account modal; no stable exact settings URL is documented.
-        settings_url: null
-        recipe: null
-        # No official completed-change email wording found; a verification code is not completion.
-        confirmation_patterns: []
-        doc_url: https://www.notion.com/help/account-settings
-      - root_kind: phone
-        tier: 3
-        # This is the existing-SMS-factor path; an enrolled authenticator is an alternative.
-        requires: [old_otp, new_otp]
-        settings_url: null
-        recipe: null
-        confirmation_patterns: []
-        doc_url: https://www.notion.com/help/two-step-verification
-  - service:
-      id: figma
-      name: Figma
-      domains: [figma.com, mail.figma.com, email.figma.com]
-      category: productivity
-      modelled: false
-      doc_url: https://help.figma.com/hc/en-us/articles/360039820114-Manage-email-address-or-password
+      - {root_kind: email, tier: 1, requires: [email_otp_new], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/account-settings'}
+      - {root_kind: phone, tier: 3, requires: [old_otp, new_otp], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/two-step-verification'}
+  # Local email/password accounts. Google and SAML SSO use the identity provider instead.
+  # Email reset is followed by enrolled 2FA; email-change proof destinations remain unverified.
+  - service: {id: figma, name: Figma, domains: [figma.com, mail.figma.com, email.figma.com], category: productivity, modelled: true, doc_url: 'https://help.figma.com/hc/en-us/articles/360039820114-Manage-email-address-or-password'}
     verified_at: 2026-10-17
-    # Optional MFA and enforced SSO cannot be selected with this contract.
-    methods: []
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.figma.com/hc/en-us/articles/4418812476695-Reset-your-password'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://help.figma.com/hc/en-us/articles/360039817634-Enable-two-factor-authentication-2FA'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://help.figma.com/hc/en-us/articles/360039817634-Enable-two-factor-authentication-2FA'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://help.figma.com/hc/en-us/articles/4418812476695-Reset-your-password'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://help.figma.com/hc/en-us/articles/4418812476695-Reset-your-password'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://help.figma.com/hc/en-us/articles/4418812476695-Reset-your-password'}
     change:
-      - root_kind: email
-        # Official steps omit password reauthentication and verification destination; not proven T1.
-        tier: 3
-        requires: []
-        # Account settings is a modal opened from the file-browser profile menu.
-        settings_url: null
-        recipe: null
-        confirmation_patterns: []
-        doc_url: https://help.figma.com/hc/en-us/articles/360039820114-Manage-email-address-or-password
-      - root_kind: phone
-        tier: 3
-        requires: [password, new_otp]
-        settings_url: null
-        recipe: null
-        confirmation_patterns: []
-        doc_url: https://help.figma.com/hc/en-us/articles/360039817634-Enable-two-factor-authentication-2FA
-  - service:
-      id: canva
-      name: Canva
-      domains: [canva.com, mail.canva.com, email.canva.com]
-      category: productivity
-      modelled: false
-      doc_url: https://www.canva.com/help/sign-up-log-in/
+      - {root_kind: email, tier: 3, requires: [], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://help.figma.com/hc/en-us/articles/360039820114-Manage-email-address-or-password'}
+      - {root_kind: phone, tier: 3, requires: [password, new_otp], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://help.figma.com/hc/en-us/articles/360039817634-Enable-two-factor-authentication-2FA'}
+  # Personal accounts; SSO-managed accounts require administrator policy.
+  # SMS variants cover legacy enrollments only; the SMS number cannot be replaced.
+  # Tier 1 email change needs both old and new inbox codes after sign-in.
+  - service: {id: canva, name: Canva, domains: [canva.com, mail.canva.com, email.canva.com, account.canva.com], category: productivity, modelled: true, doc_url: 'https://www.canva.com/help/sign-up-log-in/'}
     verified_at: 2026-10-17
-    # Email-code login is documented, but cannot be applied universally to MFA/managed accounts.
-    methods: []
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.canva.com/help/sign-up-log-in/'}
+      - {id: login_password_sms, kind: login, label: Password and enrolled SMS factor, needs_roles: [sms_2fa], needs_password: true, doc_url: 'https://www.canva.com/help/login-verification/'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.canva.com/help/login-verification/'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.canva.com/help/reset-password/'}
+      - {id: reset_email_then_sms, kind: reset, label: Reset through login email then SMS, needs_roles: [login_email, sms_2fa], needs_password: false, doc_url: 'https://www.canva.com/help/reset-password/'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.canva.com/help/reset-password/'}
+      - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.canva.com/help/sign-up-log-in/'}
     change:
-      - root_kind: email
-        # Personal, unmanaged accounts with both inboxes accessible. Managed users need admin approval.
-        tier: 1
-        requires: [email_otp_old, email_otp_new]
-        settings_url: https://www.canva.com/settings/your-account
-        recipe: null
-        confirmation_patterns: []
-        doc_url: https://www.canva.com/help/change-email/
-    # Legacy SMS MFA numbers cannot be changed; do not invent a replacement procedure.
-    # https://www.canva.com/help/sms-verification-changes/
-  - service:
-      id: coursera
-      name: Coursera
-      domains: [coursera.org, info.coursera.org, mail.coursera.org, t.mail.coursera.org]
-      category: education
-      modelled: false
-      doc_url: https://www.coursera.support/s/article/learner-000002204?language=en_US
+      - {root_kind: email, tier: 1, requires: [email_otp_old, email_otp_new], settings_url: 'https://www.canva.com/settings/your-account', recipe: null, confirmation_patterns: [], doc_url: 'https://www.canva.com/help/change-email/'}
+  # Local learner accounts; optional authenticator 2FA remains after password reset.
+  # Institution SSO and verification details of email changes remain outside this policy.
+  - service: {id: coursera, name: Coursera, domains: [coursera.org, info.coursera.org, mail.coursera.org, t.mail.coursera.org], category: education, modelled: true, doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}
     verified_at: 2026-10-17
-    # Password/email-reset flows coexist with optional TOTP and institution-enforced SSO.
-    methods: []
+    methods:
+      - {id: login_password, kind: login, label: Sign in with the account password, needs_roles: [], needs_password: true, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}
+      - {id: login_password_totp, kind: login, label: Password and enrolled TOTP factor, needs_roles: [totp_device], needs_password: true, doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}
+      - {id: reset_email, kind: reset, label: Reset password through login email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}
+      - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}
     change:
-      - root_kind: email
-        # Current official article only says edit email and Save; verification details unconfirmed.
-        tier: 3
-        requires: []
-        settings_url: https://www.coursera.org/account-settings
-        recipe: null
-        confirmation_patterns: []
-        doc_url: https://www.coursera.support/s/article/learner-000001383?language=en_US
+      - {root_kind: email, tier: 3, requires: [], settings_url: 'https://www.coursera.org/account-settings', recipe: null, confirmation_patterns: [], doc_url: 'https://www.coursera.support/s/article/learner-000001383?language=en_US'}
