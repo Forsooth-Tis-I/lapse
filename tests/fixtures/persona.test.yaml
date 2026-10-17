@@ -1,0 +1,27 @@
+display_name: Synthetic persona
+phones:
+  - id: phone_old
+    e164: "+919999994321"
+    carrier: Vi
+    country: IN
+    status: retiring
+    drop_at: 2026-10-31
+  - id: phone_new
+    e164: "+919999997788"
+    carrier: Jio
+    country: IN
+    status: active
+emails:
+  - id: email_primary
+    address: demo@example.com
+    kind: personal
+    hosted_by: google
+  - id: email_college
+    address: demo@example.edu
+    kind: edu
+    hosted_by: college_workspace
+devices:
+  - id: device_phone
+    name: Main phone
+    kind: phone
+    status: active

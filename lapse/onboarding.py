@@ -29,6 +29,8 @@ def load_persona_local(uid: str, path="persona.local.yaml", *, trace=None) -> di
     roots = []
     for item in persona.get("phones", []):
         props = dict(item)
+        if "x" in str(props.get("e164", "")).lower():
+            raise ValueError("Persona file still contains placeholder values; replace them before onboarding")
         carrier_name = str(props.get("carrier", ""))
         country = str(props.get("country", "")).upper()
         matches = [
@@ -59,6 +61,8 @@ def load_persona_local(uid: str, path="persona.local.yaml", *, trace=None) -> di
         props["email_kind"] = props.pop("kind", props.get("email_kind", "personal"))
         props["hosted_by_service"] = props.pop("hosted_by", props.get("hosted_by_service"))
         props["address"] = props["address"].strip().lower()
+        if props["address"] in {"you.demo@gmail.com", "you.college.stand-in@gmail.com"}:
+            raise ValueError("Persona file still contains placeholder values; replace them before onboarding")
         props.update(kind="email", label=props["address"])
         roots.append(_validate_root(props))
     for item in persona.get("devices", []):

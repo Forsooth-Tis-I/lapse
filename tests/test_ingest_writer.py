@@ -108,15 +108,16 @@ def test_corpus_roles_closure_evidence_and_replay(graph):
     counts = writer.write_events("test", events)
     assert counts["accounts"] == 14
     assert counts["evidence"] == 26
+    assert counts["unknown_services"] == 3
     assert counts["per_service"]["google"] == 1
     assert ["recovery_phone", "phone_old", True] in uses(g, "google")
     assert ["sms_2fa", "phone_old", True] in uses(g, "google")
     assert uses(g, "amazon_in") == [
         ["login_email", "email_primary", True],
-        ["sms_2fa", "phone_new", True],
+        ["login_phone", "phone_new", True],
     ]
     assert uses(g, "figma") == [["login_email", "email_primary", True]]
-    assert ["recovery_phone", "phone_old", True] in uses(g, "microsoft")
+    assert ["login_phone", "phone_old", True] in uses(g, "microsoft")
     assert g.ro_query('MATCH (e:Email {id: "email_college"}) RETURN e.status, e.closes_at').result_set == [
         ["closing", "2026-11-15"]
     ]

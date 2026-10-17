@@ -93,7 +93,9 @@ def test_limit_and_failure_leave_source_unacknowledged(tmp_path, monkeypatch, fa
     assert state == ["closed"]
 
 
-def test_cli_prints_only_summary(monkeypatch, capsys):
+@pytest.mark.parametrize("source", ["--eml-dir", "--live"])
+@pytest.mark.parametrize("explicit_persona", [False, True])
+def test_cli_prints_only_summary(monkeypatch, capsys, tmp_path, source, explicit_persona):
     from scripts import ingest_live
 
     summary = {
@@ -106,7 +108,14 @@ def test_cli_prints_only_summary(monkeypatch, capsys):
         "per_service": {"google": 2},
         "private": "secret@example.com",
     }
-    monkeypatch.setattr(sys, "argv", ["ingest_live.py", "--uid", "fake", "--eml-dir", "fixtures", "--no-llm"])
+    argv = ["ingest_live.py", "--uid", "fake", source]
+    if source == "--eml-dir":
+        argv.append("fixtures")
+    argv.append("--no-llm")
+    persona = tmp_path / "custom.yaml"
+    if explicit_persona:
+        argv.extend(["--persona", str(persona)])
+    monkeypatch.setattr(sys, "argv", argv)
     calls = []
 
     def handle(uid, payload):
@@ -116,7 +125,14 @@ def test_cli_prints_only_summary(monkeypatch, capsys):
     monkeypatch.setattr(ingest_live, "handle_ingest_run", handle)
     ingest_live.main()
     assert calls[0][0] == "fake"
-    assert calls[0][1]["live"] is False
+    assert calls[0][1]["live"] is (source == "--live")
+    expected_persona = (
+        persona
+        if explicit_persona
+        else jobs.ROOT_DIR
+        / ("tests/fixtures/persona.test.yaml" if source == "--eml-dir" else "persona.local.yaml")
+    )
+    assert calls[0][1]["persona_path"] == expected_persona
     assert capsys.readouterr().out == (
         "Accounts: 2\nUSES: 3 (confirmed: 2, inferred: 1)\nSignals: 1\n"
         "Unknown services: 1\nAccounts per service:\n  google: 2\n"
