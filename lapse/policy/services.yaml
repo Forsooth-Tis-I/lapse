@@ -157,7 +157,7 @@ services:
       - {id: reset_phone_then_totp, kind: reset, label: Reset through login phone then TOTP, needs_roles: [login_phone, totp_device], needs_password: false, doc_url: 'https://help.x.com/en/managing-your-account/forgotten-or-lost-password-reset'}
     change:
       - {root_kind: email, tier: 3, requires: [email_otp_new], settings_url: 'https://x.com/settings/email', recipe: null, confirmation_patterns: ['(?i)(email address|email).{0,60}(changed|updated)', '(?i)(changed|updated).{0,60}email address'], doc_url: 'https://help.x.com/en/managing-your-account/how-to-update-your-email-address'}
-      - {root_kind: phone, tier: 3, requires: [password, new_otp], settings_url: 'https://x.com/settings/phone', recipe: null, confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)'], doc_url: 'https://help.x.com/en/managing-your-account/how-to-add-a-phone-number-to-your-account'}
+      - {root_kind: phone, tier: 2, requires: [password, new_otp], settings_url: 'https://x.com/settings/phone', recipe: x_change_phone, confirmation_patterns: ['(?i)phone number.{0,60}(changed|updated)'], doc_url: 'https://help.x.com/en/managing-your-account/how-to-add-a-phone-number-to-your-account'}
   # Local account flows; linked Meta identities, WhatsApp and recovery reviews are omitted.
   - service: {id: instagram, name: Instagram, domains: [instagram.com, mail.instagram.com], category: social, modelled: true, doc_url: 'https://www.facebook.com/help/943858526073065'}
     verified_at: 2026-10-17
@@ -311,7 +311,7 @@ services:
       - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.notion.com/help/cant-log-in'}
       - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.notion.com/help/log-in-and-out'}
     change:
-      - {root_kind: email, tier: 1, requires: [email_otp_new], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/account-settings'}
+      - {root_kind: email, tier: 1, requires: [email_otp_new], settings_url: null, recipe: notion_change_email, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/account-settings'}
       - {root_kind: phone, tier: 3, requires: [old_otp, new_otp], settings_url: null, recipe: null, confirmation_patterns: [], doc_url: 'https://www.notion.com/help/two-step-verification'}
   # Local email/password accounts. Google and SAML SSO use the identity provider instead.
   # Email reset is followed by enrolled 2FA; email-change proof destinations remain unverified.
@@ -341,7 +341,7 @@ services:
       - {id: reset_email_then_totp, kind: reset, label: Reset through login email then TOTP, needs_roles: [login_email, totp_device], needs_password: false, doc_url: 'https://www.canva.com/help/reset-password/'}
       - {id: login_email_code, kind: login, label: Sign in with a code sent to the registered email, needs_roles: [login_email], needs_password: false, requires_absent_roles: [sms_2fa, totp_device], doc_url: 'https://www.canva.com/help/sign-up-log-in/'}
     change:
-      - {root_kind: email, tier: 1, requires: [email_otp_old, email_otp_new], settings_url: 'https://www.canva.com/settings/your-account', recipe: null, confirmation_patterns: [], doc_url: 'https://www.canva.com/help/change-email/'}
+      - {root_kind: email, tier: 1, requires: [email_otp_old, email_otp_new], settings_url: 'https://www.canva.com/settings/your-account', recipe: canva_change_email, confirmation_patterns: [], doc_url: 'https://www.canva.com/help/change-email/'}
   # Local learner accounts; optional authenticator 2FA remains after password reset.
   # Institution SSO and verification details of email changes remain outside this policy.
   - service: {id: coursera, name: Coursera, domains: [coursera.org, info.coursera.org, mail.coursera.org, t.mail.coursera.org], category: education, modelled: true, doc_url: 'https://www.coursera.support/s/article/learner-000002204?language=en_US'}
