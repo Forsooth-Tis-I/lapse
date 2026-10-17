@@ -11,8 +11,11 @@ Node 22 is needed only for host web development.
    Keep the host database port at 6380; 6379 and 3000 are already occupied.
 2. Follow [persona setup](persona-setup.md) to create `persona.local.yaml`.
    Replace placeholder values locally. Never commit either private file.
-3. Run `uv sync`, then `make doctor`. Doctor exits nonzero for failed checks,
-   prints fix hints, and never prints credentials or persona contents.
+3. Run `uv sync --extra browser`, start FalkorDB with `make up`, then inspect
+   `make doctor`. Doctor exits nonzero for failed checks, prints fix hints, and
+   never prints credentials or persona contents. Its database check needs the
+   running server, but its port check currently flags that server's bound ports.
+   Resolve other failures; those expected reports do not require stopping FalkorDB.
    Empty optional inboxes are skipped; partially configured inboxes fail.
 
 Doctor checks host dependencies. A Docker-only worker does not require host
@@ -100,3 +103,20 @@ implementation must enforce read-only demo mode. Stop exposure with
   packages, rebuild, and inspect that service's logs. nginx waits for API health.
 - **No tunnel URL:** inspect `make logs s=tunnel`; outbound Cloudflare access may
   be blocked. The local app and long-polling bot remain usable.
+
+## WP11 integration checkpoint
+
+The current `make mcp` command uses the MCP server's default stdio transport. For
+host HTTP clients, run
+`uv run python -m lapse.agent.mcp_server --transport streamable-http`.
+The server binds loopback and reads `MCP_PORT`;
+the Docker settings currently advertise `FASTMCP_HOST` and `FASTMCP_PORT`. Align
+that entrypoint and binding before treating the container MCP health check as
+working. The agent's default in-process tool transport does not require HTTP MCP.
+
+The separately integrated LLM client targets OpenCode Go at
+`https://opencode.ai/zen/go/v1`, model `kimi-k2.7-code`, with an
+`x-opencode-session` header. This supersedes the earlier free-tier target for the
+integrated build. Verify that client and worker handler registration after merging
+before recording live execution. The final smoke command is
+`uv run python scripts/demo_e2e.py` once that parallel work lands.

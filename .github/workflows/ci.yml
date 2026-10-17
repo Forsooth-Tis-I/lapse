@@ -1,0 +1,43 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --extra browser
+      - run: uv run ruff check .
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m "not db"
+
+  graph:
+    needs: unit
+    runs-on: ubuntu-latest
+    services:
+      falkordb:
+        image: falkordb/falkordb:v4.22.1
+        ports:
+          - 6380:6379
+        env:
+          FALKORDB_ARGS: TIMEOUT_MAX 30000 TIMEOUT_DEFAULT 10000 RESULTSET_SIZE 100000 MAX_QUEUED_QUERIES 200
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      FALKORDB_HOST: localhost
+      FALKORDB_PORT: "6380"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --extra browser
+      - run: uv run pytest -m db
+      - run: uv run python -m scripts.verify_claims
