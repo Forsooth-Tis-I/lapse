@@ -676,3 +676,31 @@ async def test_smoke_prints_username_without_token(monkeypatch, capsys):
     monkeypatch.setattr(bot_smoke, "Bot", Bot)
     assert await bot_smoke.check() == 0
     assert capsys.readouterr().out == "TELEGRAM_BOT_TOKEN set: yes\ngetMe username: @synthetic_bot\n"
+
+
+@pytest.mark.parametrize("hint", ["9810", "••9810", "old number"])
+async def test_risk_hint_sends_one_answer_for_selected_phone(harness, monkeypatch, scenario, hint):
+    from lapse.agent import tools
+    from lapse.bot.runtime import scenarios, views
+
+    roots = [
+        Root(id="old", kind="phone", label="••9810 (Vi)", last4="9810", status="retiring"),
+        Root(id="college", kind="email", label="College email", status="closing"),
+    ]
+    monkeypatch.setattr(views, "list_roots", lambda uid: roots)
+    monkeypatch.setattr(
+        tools,
+        "resolve",
+        lambda uid, hint: {
+            "candidates": [{"id": "old", "label": "••9810 (Vi)", "kind": "root"}],
+        },
+    )
+    run = Mock(return_value=scenario)
+    monkeypatch.setattr(scenarios, "run_scenario", run)
+    harness.context.args = hint.split()
+    await harness.runtime.risk(harness.update, harness.context)
+    assert len(harness.bot.sent) == 1
+    assert run.call_count == 1
+    assert run.call_args.args[1].root_ids == ["old"]
+    assert "9810" in last_text(harness)
+    assert "college" not in last_text(harness).lower()
