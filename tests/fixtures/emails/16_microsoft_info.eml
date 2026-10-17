@@ -1,0 +1,12 @@
+From: Synthetic notice <lapse-fixture@accountprotection.microsoft.com>
+To: Demo <demo@example.com>
+Date: Sat, 17 Oct 2026 12:00:00 +0000
+Message-ID: <synthetic-16@example.com>
+Subject: Security info added
+X-Lapse-Synthetic: true
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: base64
+MIME-Version: 1.0
+
+QSBuZXcgcGhvbmUgbnVtYmVyICsxICjigKLigKLigKIpIOKAouKAouKAoi3igKLigKIyMSB3YXMg
+YWRkZWQgdG8geW91ciBzZWN1cml0eSBpbmZvLg0K

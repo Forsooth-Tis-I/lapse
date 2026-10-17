@@ -1,0 +1,11 @@
+From: Synthetic notice <lapse-fixture@amazon.in>
+To: Demo <demo@example.com>
+Date: Sat, 17 Oct 2026 12:00:00 +0000
+Message-ID: <synthetic-05@example.com>
+Subject: Account change confirmation
+X-Lapse-Synthetic: true
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Your phone number was changed from xxx-xxx-4321 to xxx-xxx-7788.

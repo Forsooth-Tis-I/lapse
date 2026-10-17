@@ -20,6 +20,7 @@ dependencies = [
   "imapclient>=3.0",
   "apscheduler>=3.10,<4",
   "cryptography>=43",
+  "tldextract>=5.4.0",
 ]
 
 [project.optional-dependencies]
