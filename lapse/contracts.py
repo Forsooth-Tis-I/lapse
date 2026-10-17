@@ -119,6 +119,9 @@ class MethodTemplate(BaseModel):
     label: str
     needs_roles: list[UseRole]  # every role must be controlled (AND)
     needs_password: bool = False  # only actors who know the password can use it
+    # The template applies to an account only if the account has NONE of these roles.
+    # e.g. "reset by email alone" requires_absent_roles=[sms_2fa, totp_device]; the 2FA variants need them instead.
+    requires_absent_roles: list[UseRole] = []
     doc_url: str | None = None
 
 
