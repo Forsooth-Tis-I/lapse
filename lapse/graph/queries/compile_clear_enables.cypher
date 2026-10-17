@@ -1,0 +1,1 @@
+MATCH ()-[e:ENABLES]->() DELETE e
