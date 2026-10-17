@@ -24,7 +24,8 @@ from lapse.config import settings
 from lapse.trace import current_turn, tool_call
 
 MAX_TOOL_STEPS = 6
-LLM_BUDGET_SECONDS = 4
+# Time the LLM gets to choose tools before the deterministic router answers. kimi-k2.7-code is ~3 s per call.
+LLM_BUDGET_SECONDS = float(os.environ.get("AGENT_LLM_BUDGET_SECONDS", "7"))
 SYSTEM = Path(__file__).with_name("prompts").joinpath("system.md").read_text()
 
 
