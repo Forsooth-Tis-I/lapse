@@ -47,7 +47,7 @@ Without FalkorDB, Lapse cannot resolve accounts, compute scenarios, choose fix o
 
 Telegram is the ongoing conversation, in the Muse/Dots style. The agent can alert you before you ask. Reissue countdowns, mailbox closure, domain expiry, stale contacts, new devices, and missed accounts trigger graph checks.
 
-The same registry exposes <!-- claim:tools.count -->11<!-- /claim --> fixed MCP tools. The agent selects tools and explains results. It never writes Cypher. The trace shows tool arguments, named query, elapsed milliseconds, row count, and outcome. The default transport calls the registry in-process; `AGENT_TOOL_TRANSPORT=mcp` uses MCP HTTP. [Tool contracts](docs/tools.md).
+The same registry exposes <!-- claim:tools.count -->12<!-- /claim --> fixed MCP tools. The agent selects tools and explains results. It never writes Cypher. The trace shows tool arguments, named query, elapsed milliseconds, row count, and outcome. The default transport calls the registry in-process; `AGENT_TOOL_TRANSPORT=mcp` uses MCP HTTP. [Tool contracts](docs/tools.md).
 
 Typing "approve" asks for the approval controls. A human action authorizes execution. Telegram approval tokens are scoped, expiring, and single-use; the local web approval route queues the selected change.
 
