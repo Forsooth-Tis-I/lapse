@@ -1,5 +1,6 @@
-MATCH (a:Account {id: $account_id})-[u:USES {role: $role}]->(:Root {id: $from_root}),
+MATCH (a:Account {id: $account_id})-[u:USES]->(:Root {id: $from_root}),
       (replacement:Root {id: $to_root})
-MERGE (a)-[next:USES {role: $role}]->(replacement)
+WHERE u.role IN $roles
+MERGE (a)-[next:USES {role: u.role}]->(replacement)
 SET next = properties(u)
 DELETE u

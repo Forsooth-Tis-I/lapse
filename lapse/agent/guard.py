@@ -26,7 +26,7 @@ ENTITY_FIELDS = {
     "carrier",
     "last4",
 }
-ENTITY_LISTS = {"root_ids", "direct_accounts", "unknown_accounts"}
+ENTITY_LISTS = {"root_ids", "direct_accounts", "unknown_accounts", "replacement_ids"}
 PROSE = set(Path(__file__).with_name("prompts").joinpath("grounded_words.txt").read_text().split())
 
 
@@ -92,22 +92,34 @@ def templated(results: list) -> str:
             labels = ", ".join(a["label"] for a in result["affected_accounts"]) or "none"
             unknown = result.get("unknown_accounts", [])
             extra = f" Unknown, not safe: {', '.join(unknown)}." if unknown else ""
+            via = "other accounts"
+            for hub in result.get("via_accounts", []):
+                if len(hub["accounts"]) == indirect:
+                    via = hub["label"]
+                    break
             return (
                 f"Under the methods we model, {result['kind']}: directly: {direct}; "
-                f"through other accounts: {indirect} more. Affected accounts: {labels}.{extra} Plan the fix next."
+                f"through {via}: {indirect} more. Affected accounts: {labels}.{extra} Plan the fix next."
             )
         if "exposure_before" in result:
             steps = (
                 "; ".join(
-                    f"{s['order']}. {s['account_label']} (T{s['tier']}, {s['status']})"
+                    f"{s['order']}. {s.get('title') or s['account_label']} (T{s['tier']}, {s['status']})"
                     for s in result["steps"]
                 )
                 or "No changes proposed"
             )
             feasibility = "" if result["feasible"] else " The full plan is infeasible before the deadline."
+            components = ""
+            if result.get("takeover_before") is not None:
+                components = (
+                    f" Takeover: {result['takeover_before']} to {result['takeover_after']};"
+                    f" lockout: {result['lockout_before']} to {result['lockout_after']}."
+                )
+            note = f" {result['note']}" if result.get("note") else ""
             return (
                 f"Under the methods we model, planned exposure: {result['exposure_before']} to "
-                f"{result['exposure_after']}. {steps}.{feasibility} Review the steps before approval."
+                f"{result['exposure_after']}.{components} {steps}.{feasibility}{note} Review the steps before approval."
             )
         if result.get("outcome") == "not_affected":
             return "This account is not affected in this scenario under the methods we model. Review its methods next."
@@ -115,9 +127,11 @@ def templated(results: list) -> str:
             path = "; ".join(
                 f"{s['from_label']} to {s['to_label']} through {s['method_label']}" for s in result["steps"]
             )
-            return (
-                f"Under the methods we model: {path}. Review all required method branches, then plan the fix."
+            scenario = next(
+                (r for r in reversed(results) if isinstance(r, dict) and "affected_accounts" in r), {}
             )
+            kind = scenario.get("kind", "risk")
+            return f"Under the methods we model, {kind}: {path}. Review all required method branches, then plan the fix."
         if "candidates" in result:
             choices = ", ".join(c["label"] for c in result["candidates"])
             return f"Choose a matching root or account: {choices}. Then show risk under the methods we model."

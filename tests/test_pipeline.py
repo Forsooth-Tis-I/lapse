@@ -52,11 +52,12 @@ def test_live_checkpoint_waits_for_last_event(raw, monkeypatch, tmp_path, count)
 
     @contextmanager
     def scan(inbox, **kwargs):
+        assert kwargs["uid"] == "tenant"
         yield iter([raw("Welcome", msg_id=f"<{i}@example.com>") for i in range(count)])
         committed.append(inbox)
 
     monkeypatch.setattr(pipeline, "fetch_emails", scan)
-    stream = iter_events(["email_primary"], use_llm=False, cache_path=tmp_path / "c")
+    stream = iter_events(["email_primary"], uid="tenant", use_llm=False, cache_path=tmp_path / "c")
     for _ in range(count):
         next(stream)
         assert committed == []
@@ -64,7 +65,7 @@ def test_live_checkpoint_waits_for_last_event(raw, monkeypatch, tmp_path, count)
         next(stream)
     assert committed == ["email_primary"]
     committed.clear()
-    stream = iter_events(["email_primary"], use_llm=False, cache_path=tmp_path / "c")
+    stream = iter_events(["email_primary"], uid="tenant", use_llm=False, cache_path=tmp_path / "c")
     next(stream)
     stream.close()
     assert committed == []

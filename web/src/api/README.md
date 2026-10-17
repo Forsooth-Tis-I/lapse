@@ -40,3 +40,21 @@ Edges point along dependency/derivation direction for display. Include `google �
 Mock scenarios emit partial `affected_accounts` round by round; `rounds` describes the final closure. The POST response and GET scenario always return the full result. Count Account nodes only: five direct and ten affected accounts; Gmail is an additional reached Root. The stated persona lists ten affected accounts, not twelve. GitHub is blocked by its TOTP requirement and Splitwise stays unknown.
 
 Mock approval simulates T1 completion, T2 OTP waiting, T3 a deep link followed by simulated confirmation, and T4 a permanently pending manual visit. T1 is demonstrated in the college email plan. A six-digit OTP simulates success and is discarded. Only verified completion rewires a dependency and updates stored scenarios. A college account moved to Gmail remains exposed to takeover until Gmail’s recovery number is fixed; its explanation follows the updated dependency. Recreating a plan preserves each service’s tier while omitting completed changes. The screenshot is an SVG labelled SIMULATED EXECUTOR, not a real browser capture. Ingestion, evidence headers, query names/timings, deadlines, Telegram code and executor capabilities are demo data. The Telegram URL is a generic placeholder; backend must return a real bot deep link and code. Credentials are discarded in mock mode.
+
+
+## Additive wave-2 fields
+
+The backend retains existing fields and adds optional display data. Consumers can adopt these without changing
+request shapes. This note does not change the web implementation.
+
+- `Plan`: `takeover_before`, `takeover_after`, `lockout_before`, `lockout_after` are counts; `remaining_accounts`
+  and `unknown_accounts` are string arrays; `note` is nullable text. Old stored plans default component counts
+  to zero because they did not record them. Phone exposure is the union, not the sum, of takeover and lockout.
+  Email/device plans measure lockout; domain plans measure takeover. Zero modelled exposure does not mean an
+  unknown service is safe.
+- `Change`: `roles` is an array of existing role values; `title` is nullable text. One step covers all listed
+  roles for an account and old root. `role` remains available for older clients. `note` carries manual settings
+  instructions or missing-procedure/unknown warnings. An older change without `roles` remains single-role.
+- Chat replies add `diagnostics`: `llm_tool_calls: string[]`, `llm_requests: number`, `fallback_used: boolean`,
+  `guard_regenerated: boolean`, and optional `fallback_reason: string`. The existing `tool_calls` includes
+  fallback calls. Diagnostics contain no provider response bodies or credentials.

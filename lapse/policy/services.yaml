@@ -269,19 +269,37 @@ services:
       - {root_kind: email, tier: 3, requires: [], settings_url: 'https://www.netflix.com/email', recipe: null, confirmation_patterns: ['(?i)(?:email|email address).{0,50}(?:changed|updated)'], doc_url: 'https://help.netflix.com/en/node/134335'}
       - {root_kind: phone, tier: 3, requires: [new_otp], settings_url: 'https://www.netflix.com/phonenumber', recipe: null, confirmation_patterns: ['(?i)phone number.{0,50}(?:changed|updated)'], doc_url: 'https://help.netflix.com/en/node/25970'}
   # Consumer phone OTP sign-in inspected on the public site, without requesting a code.
-  # Unusual logins may require another approval at /2fa; no contact-change procedure is established.
+  # Unusual logins may require another approval at /2fa. Phone changes are assisted in-app.
+  # The support page verifies the help channel, not the exact update proofs; confirm them in settings.
   - service: {id: swiggy, name: Swiggy, domains: [swiggy.com, swiggy.in], category: food, modelled: true, doc_url: 'https://www.swiggy.com/swiggy_customer_care'}
     verified_at: 2026-10-17
     methods:
       - {id: login_phone_otp, kind: login, label: Sign in using the registered mobile OTP, needs_roles: [login_phone], needs_password: false, doc_url: 'https://www.swiggy.com/'}
-    change: []
+    change:
+      - root_kind: phone
+        tier: 3
+        requires: []
+        settings_url: 'https://www.swiggy.com/swiggy_customer_care'
+        settings_note: 'In the app, open Profile, edit the phone number, and complete the checks shown there. If unavailable, use in-app help. Exact verification requirements are unverified; confirm the saved number before marking done.'
+        recipe: null
+        confirmation_patterns: []
+        doc_url: 'https://www.swiggy.com/swiggy_customer_care'
   # Registered consumer mobile OTP flow documented by the official consumer MCP consent screen.
-  # No merchant flow is used as evidence; contact changes remain unverified.
+  # No merchant flow is used as evidence. Phone changes are assisted in-app.
+  # The privacy page is a help reference, not verification of the exact contact-change proofs.
   - service: {id: zomato, name: Zomato, domains: [zomato.com, zomatomail.com], category: food, modelled: true, doc_url: 'https://www.zomato.com/policies/privacy/'}
     verified_at: 2026-10-17
     methods:
       - {id: login_phone_otp, kind: login, label: Sign in using the registered mobile OTP, needs_roles: [login_phone], needs_password: false, doc_url: 'https://mcp-server.zomato.com/consent'}
-    change: []
+    change:
+      - root_kind: phone
+        tier: 3
+        requires: []
+        settings_url: 'https://www.zomato.com/policies/privacy/'
+        settings_note: 'In the app, open Profile, edit the phone number, and complete the checks shown there. If unavailable, use in-app help. Exact verification requirements are unverified; confirm the saved number before marking done.'
+        recipe: null
+        confirmation_patterns: []
+        doc_url: 'https://www.zomato.com/policies/privacy/'
   # OTP grants account/profile access, not a UPI PIN or permission to spend from a linked bank.
   - service: {id: paytm, name: Paytm, domains: [paytm.com, paytm.in], category: payments, modelled: true, doc_url: 'https://paytm.com/support/upi/deleted-paytm-app-what-happens-account-upi'}
     verified_at: 2026-10-17

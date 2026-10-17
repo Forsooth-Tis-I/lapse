@@ -2,8 +2,10 @@ from itertools import islice
 from pathlib import Path
 
 from lapse.config import ROOT_DIR
+from lapse.worker import handler
 
 
+@handler("ingest_run")
 def handle_ingest_run(uid: str, payload: dict) -> dict:
     from lapse.ingest.pipeline import iter_events
     from lapse.ingest.writer import write_events
@@ -17,6 +19,7 @@ def handle_ingest_run(uid: str, payload: dict) -> dict:
         load_persona_local(uid, persona_path)
     events = iter_events(
         payload.get("inboxes", ["email_primary", "email_college"]),
+        uid=uid,
         live=payload.get("live", not bool(payload.get("eml_dir"))),
         eml_dir=payload.get("eml_dir"),
         use_llm=not payload.get("no_llm", False),

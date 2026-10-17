@@ -28,6 +28,7 @@ class AgentReply(TypedDict):
     text: str
     buttons: list[dict]
     tool_calls: list[str]
+    diagnostics: dict
 
 
 @dataclass
@@ -38,6 +39,7 @@ class TurnTools:
     definitions: list[dict] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
     results: list[Any] = field(default_factory=list)
+    llm_requests: int = 0
 
     async def call(self, name, arguments):
         if len(self.calls) >= MAX_TOOL_STEPS:
@@ -105,6 +107,7 @@ def create_llm():
 
 async def model_answer(client, messages, tools):
     while len(tools.calls) < MAX_TOOL_STEPS:
+        tools.llm_requests += 1
         response = await client.chat.completions.create(
             model=settings().llm_model,
             messages=messages,
@@ -153,7 +156,7 @@ async def fallback(text, tools, previous):
         if plan_id:
             await tools.call("plan_status", {"plan_id": plan_id})
             if "approve" in lower:
-                return "Review the plan and use its approval button to approve changes under the methods we model."
+                return "Review the plan to approve changes under the methods we model."
         return guard.templated(tools.results)
     why = re.search(r"why\s+is\s+(.+?)\s+at\s+risk", text, re.IGNORECASE)
     loss = re.search(
@@ -161,7 +164,11 @@ async def fallback(text, tools, previous):
     )
     plan = re.search(r"(?:plan\s+(?:the\s+)?fix|fix|retire)(?:\s+for)?\s+(.+)", text, re.IGNORECASE)
     risk = re.search(r"(?:risk\s+(?:of|for)|show\s+(?:the\s+)?risk\s+(?:of|for))\s+(.+)", text, re.IGNORECASE)
-    match = why or loss or plan or risk
+    closing = re.search(r"what\s+do\s+i\s+lose\s+when\s+(.+?)\s+closes", text, re.IGNORECASE)
+    reassigned = re.search(r"(?:someone|a stranger)\s+(?:gets|takes|has)\s+(.+)", text, re.IGNORECASE)
+    safety = re.search(r"^is\s+(.+?)\s+safe[?.!]*$", text, re.IGNORECASE)
+    loss = closing or loss
+    match = why or loss or plan or risk or reassigned or safety
     if not match:
         if re.fullmatch(r"(?:plan\s+the\s+fix|show\s+risk)", lower) and previous.get("root_id"):
             match_id = previous["root_id"]
@@ -185,9 +192,20 @@ async def fallback(text, tools, previous):
     candidate = candidates[0]
     if why and candidate["kind"] == "account":
         if previous.get("scenario_id"):
-            await tools.call(
+            explanation = await tools.call(
                 "explain", {"account_id": candidate["id"], "scenario_id": previous["scenario_id"]}
             )
+            if (
+                explanation.get("outcome") == "not_affected"
+                and previous.get("scenario_kind") == "takeover"
+                and previous.get("root_id")
+                and len(tools.calls) <= MAX_TOOL_STEPS - 2
+            ):
+                scenario = await tools.call("lockout_if_lost", {"root_id": previous["root_id"]})
+                if scenario.get("id"):
+                    await tools.call(
+                        "explain", {"account_id": candidate["id"], "scenario_id": scenario["id"]}
+                    )
         else:
             await tools.call("account_info", {"account_id": candidate["id"]})
     elif candidate["kind"] == "root":
@@ -200,7 +218,11 @@ async def fallback(text, tools, previous):
                 else "takeover_if_reassigned"
             )
         )
-        await tools.call(tool, {"old_root_id" if plan else "root_id": candidate["id"]})
+        arguments = {"old_root_id" if plan else "root_id": candidate["id"]}
+        replacements = candidate.get("replacement_ids", [])
+        if plan and len(replacements) == 1:
+            arguments["new_root_id"] = replacements[0]
+        await tools.call(tool, arguments)
     else:
         await tools.call("account_info", {"account_id": candidate["id"]})
     return guard.templated(tools.results)
@@ -259,11 +281,20 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
     turn_id = memory.save_turn(uid, "user", clean_text, channel)
     turn_token = current_turn.set(turn_id)
     calls, results, buttons = [], [], []
+    diagnostics = {
+        "llm_tool_calls": [],
+        "fallback_used": False,
+        "guard_regenerated": False,
+        "llm_requests": 0,
+    }
     answer = "The graph tools are unavailable. Unknown, not safe under the methods we model. Try again."
     try:
         async with tool_transport(uid, turn_id) as tools:
             client = create_llm()
-            messages = [{"role": "system", "content": SYSTEM}]
+            context_ids = json.dumps(latest_context(prior))
+            messages = [
+                {"role": "system", "content": SYSTEM + "\nPrior context IDs to re-read: " + context_ids}
+            ]
             messages += [{"role": turn["role"], "content": turn["text"]} for turn in prior]
             messages.append({"role": "user", "content": clean_text})
             try:
@@ -271,6 +302,7 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                     raise ValueError("Model unavailable")
                 answer = await model_answer(client, messages, tools)
                 if not guard.grounded(answer, tools.results):
+                    diagnostics["guard_regenerated"] = True
                     messages.extend(
                         [
                             {"role": "assistant", "content": answer},
@@ -281,6 +313,7 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                             },
                         ]
                     )
+                    tools.llm_requests += 1
                     response = await client.chat.completions.create(
                         model=settings().llm_model,
                         messages=messages,
@@ -298,12 +331,18 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                 AttributeError,
                 RuntimeError,
                 OSError,
-            ):
+            ) as exc:
+                diagnostics["llm_tool_calls"] = list(tools.calls)
+                diagnostics["fallback_used"] = True
+                diagnostics["fallback_reason"] = type(exc).__name__
                 answer = await fallback(clean_text, tools, latest_context(prior))
             finally:
                 if client is not None:
                     await client.close()
                 calls, results = tools.calls, tools.results
+                if not diagnostics["fallback_used"]:
+                    diagnostics["llm_tool_calls"] = list(calls)
+                diagnostics["llm_requests"] = tools.llm_requests
             buttons = buttons_for(uid, results)
     except (HTTPError, ValueError, RuntimeError, OSError, RedisError, ExceptionGroup):
         if results:
@@ -323,4 +362,4 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
     mentioned = guard.entities(results)
     memory.link_turn(uid, turn_id, mentioned)
     memory.save_turn(uid, "assistant", answer, channel, mentioned, context)
-    return {"text": answer, "buttons": buttons, "tool_calls": calls}
+    return {"text": answer, "buttons": buttons, "tool_calls": calls, "diagnostics": diagnostics}
