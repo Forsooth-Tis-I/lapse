@@ -188,12 +188,12 @@ def test_fixture_claims_from_real_graph():
     assert values["takeover_phone_old.full"] == 10
     assert values["takeover_phone_old.unknown"] == 1
     # Two-level lockout: full is the union of lost_now and recovery_lost.
-    assert values["lockout_email_college.lost_now"] == 0
+    assert values["lockout_email_college.lost_now"] == 1
     assert values["lockout_email_college.recovery_lost"] == 4
-    assert values["lockout_email_college.full"] == 4
-    assert values["compound_lockout.lost_now"] == 5
+    assert values["lockout_email_college.full"] == 5
+    assert values["compound_lockout.lost_now"] == 6
     assert values["compound_lockout.recovery_lost"] == 14
-    assert values["compound_lockout.full"] == 14
+    assert values["compound_lockout.full"] == 15
     assert values["plan_phone_old.before"] == 11  # combined takeover + lockout exposure
     assert values["plan_phone_old.after"] == 0
     assert values["plan_phone_old.steps"] == 7

@@ -254,3 +254,59 @@ def test_template_placeholders_fail_before_writing(tmp_path, monkeypatch, sectio
     with pytest.raises(ValueError, match="still contains placeholder values") as error:
         onboarding.load_persona_local("fake", path)
     assert value not in "".join(traceback.format_exception(error.value))
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("discovered", [False, True])
+def test_declared_uses_confirm_dependencies_and_recompile(tmp_path, onboarding_graph, discovered):
+    from lapse.graph.closure import closure
+    from lapse.policy.compile import compile_user_graph
+    from lapse.policy.loader import default_policy_paths, load_policy_file
+
+    path = tmp_path / "persona.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "phones": [{"id": "phone_old", "last4": "4321"}],
+                "emails": [{"id": "email_primary", "address": "demo@example.com", "hosted_by": "google"}],
+                "declared_uses": [
+                    {"service": "google", "account": "email_primary", "role": "sms_2fa", "root": "phone_old"},
+                    {
+                        "service": "google",
+                        "account": "email_primary",
+                        "role": "recovery_phone",
+                        "root": "phone_old",
+                    },
+                ],
+            }
+        )
+    )
+    onboarding.load_persona_local("test", path)
+    if discovered:
+        onboarding_graph.query(
+            "CREATE (:Account {id: 'google', service_id: 'google', display: 'Google', "
+            "identifier: 'demo@example.com', modelled: true, status: 'active'})"
+        )
+        policies = [policy for path in default_policy_paths() for policy in load_policy_file(path)[0]]
+        compile_user_graph(onboarding_graph, policies)
+        assert "google" in closure(onboarding_graph, [], pw=True).reached
+        assert "google" not in closure(onboarding_graph, ["phone_old"]).reached
+    assert onboarding.apply_declared_uses("test", path) == int(discovered)
+    assert onboarding.apply_declared_uses("test", path) == int(discovered)
+    edges = onboarding_graph.ro_query(
+        "MATCH (a:Account)-[u:USES]->(r:Root) "
+        "RETURN a.id, u.role, r.id, u.confirmed, u.confidence, u.source ORDER BY u.role"
+    ).result_set
+    if discovered:
+        assert edges == [
+            ["google", "recovery_phone", "phone_old", True, 1.0, "declared"],
+            ["google", "sms_2fa", "phone_old", True, 1.0, "declared"],
+        ]
+        assert "google" not in closure(onboarding_graph, [], pw=True).reached
+        assert {"phone_old", "google", "email_primary"} == set(
+            closure(onboarding_graph, ["phone_old"]).reached
+        )
+    else:
+        assert edges == []
+        assert onboarding_graph.ro_query("MATCH (a:Account) RETURN count(a)").result_set == [[0]]
+        assert onboarding_graph.ro_query("MATCH (m:Method) RETURN count(m)").result_set == [[0]]

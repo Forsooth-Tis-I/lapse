@@ -227,8 +227,8 @@ def test_fixture_takeover_and_explain(persona):
 
 def test_fixture_lockout_and_compound(persona):
     single = scenarios.run_scenario("test", ScenarioRequest(kind="lockout", root_ids=["email_college"]))
-    assert ids(single) == {"figma", "canva", "coursera", "microsoft"}
-    assert set(single.direct_accounts) == ids(single)
+    assert ids(single) == {"college_workspace", "figma", "canva", "coursera", "microsoft"}
+    assert set(single.direct_accounts) == {"figma", "canva", "coursera", "microsoft"}
     assert scenarios.explain("test", single.id, "figma").outcome == "lost_now"
     compound = scenarios.run_scenario(
         "test", ScenarioRequest(kind="lockout", root_ids=["phone_old", "email_college"])
@@ -290,9 +290,9 @@ def test_lockout_distinguishes_password_login_from_recovery(g):
         ],
     )
     result = scenarios.run_scenario("test", ScenarioRequest(kind="lockout", root_ids=["email_college"]))
-    assert {node.node_id for node in result.lost_now_accounts} == {"email_code"}
+    assert {node.node_id for node in result.lost_now_accounts} == {"mail_host", "email_code"}
     assert {node.node_id for node in result.recovery_lost_accounts} == {"email_code", "password_login"}
-    assert ids(result) == {"email_code", "password_login"}
+    assert ids(result) == {"mail_host", "email_code", "password_login"}
     assert scenarios.get_scenario("test", result.id) == result
     immediate = scenarios.explain("test", result.id, "email_code")
     assert immediate.outcome == "lost_now"
@@ -331,20 +331,21 @@ def test_full_policy_lockout_tiers_and_compound(g):
     _, carriers = load_policy_file("lapse/policy/carriers.yaml")
     load_persona(g, policies, carriers)
     single = scenarios.run_scenario("test", ScenarioRequest(kind="lockout", root_ids=["email_college"]))
-    assert single.lost_now_accounts == []
+    assert {node.node_id for node in single.lost_now_accounts} == {"college_workspace"}
     assert {node.node_id for node in single.recovery_lost_accounts} == {
         "figma",
         "canva",
         "coursera",
         "microsoft",
     }
-    assert set(single.direct_accounts) == ids(single)
+    assert set(single.direct_accounts) == {"figma", "canva", "coursera", "microsoft"}
     assert scenarios.explain("test", single.id, "figma").outcome == "recovery_lost"
     compound = scenarios.run_scenario(
         "test", ScenarioRequest(kind="lockout", root_ids=["phone_old", "email_college"])
     )
     assert ids(single) <= ids(compound)
     assert {node.node_id for node in compound.lost_now_accounts} == {
+        "college_workspace",
         "google",
         "dropbox",
         "paypal",

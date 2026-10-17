@@ -457,3 +457,29 @@ def test_recovery_email_change_preserves_login_identifier(graph):
         ["login_email", "email_college", True],
         ["recovery_email", "email_primary", True],
     ]
+
+
+def test_support_mentions_do_not_create_email_roots(graph):
+    g, _, _ = graph
+    before = g.ro_query("MATCH (r:Root) RETURN r.id ORDER BY r.id").result_set
+    writer.write_events(
+        "test", [event(emails_mentioned=["support@google.com", "notice@google.com", " DEMO@EXAMPLE.EDU "])]
+    )
+    assert g.ro_query("MATCH (r:Root) RETURN r.id ORDER BY r.id").result_set == before
+    assert g.ro_query("MATCH (:Evidence)-[:MENTIONS]->(e:Email) RETURN e.id ORDER BY e.id").result_set == [
+        ["email_college"],
+        ["email_primary"],
+    ]
+
+
+def test_same_service_accounts_have_distinct_display_labels(graph, monkeypatch):
+    from lapse.graph import views
+
+    g, _, _ = graph
+    monkeypatch.setattr(views, "user_graph", lambda uid: g)
+    writer.write_events("test", [event(), event(msg_id="<college>", inbox="email_college")])
+    payload = views.graph_view("test")
+    accounts = [node for node in payload["nodes"] if node["node_type"] == "Account"]
+    assert {node["label"] for node in accounts} == {"Google · demo@example.com", "Google · demo@example.edu"}
+    for node in accounts:
+        assert views.account_detail("test", node["id"])["account"]["display"] == node["label"]

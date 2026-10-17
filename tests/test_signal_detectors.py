@@ -94,7 +94,7 @@ def test_closing_email_adopts_ingested_signal_and_uses_lockout(detector_graph):
     result = detectors.run_detectors("test", now=NOW)
     assert result[0].id == "ingest-existing"
     assert (
-        "student@example.test closes on 2026-12-01; lost outright: 1 accounts; "
+        "student@example.test closes on 2026-12-01; lost outright: 2 accounts; "
         "no way back if you forget the password: 2 accounts."
     ) in result[0].detail
     assert len(calls) == 1

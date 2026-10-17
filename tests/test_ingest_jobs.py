@@ -43,10 +43,25 @@ def test_job_onboards_then_writes_before_advancing(tmp_path, monkeypatch, fake_w
     order = []
     monkeypatch.setattr(onboarding, "load_persona_local", lambda uid, path: order.append("onboard"))
 
+    def declared(uid, path):
+        assert (uid, path) == ("fake", persona)
+        assert order == ["onboard", "checkpoint"]
+        assert calls[-1] == ("fake", [])
+        order.append("declared")
+        return 1
+
+    monkeypatch.setattr(onboarding, "apply_declared_uses", declared)
+
     def events(inboxes, **kwargs):
         assert order == ["onboard"]
         assert inboxes == ["email_primary", "email_college"]
-        assert kwargs == {"uid": "fake", "live": False, "eml_dir": "fixtures", "use_llm": False, "extraction_stats": {}}
+        assert kwargs == {
+            "uid": "fake",
+            "live": False,
+            "eml_dir": "fixtures",
+            "use_llm": False,
+            "extraction_stats": {},
+        }
         yield "first"
         assert calls == [("fake", ["first"])]
         yield "second"
@@ -65,7 +80,8 @@ def test_job_onboards_then_writes_before_advancing(tmp_path, monkeypatch, fake_w
         )
         == summary
     )
-    assert order == ["onboard", "checkpoint"]
+    assert order == ["onboard", "checkpoint", "declared"]
+    assert summary["declared_uses"] == 1
     assert calls == [("fake", ["first"]), ("fake", ["second"]), ("fake", [])]
 
 

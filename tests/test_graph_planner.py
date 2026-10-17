@@ -140,8 +140,12 @@ def test_lockout_replacement_repairs_access_but_deletion_does_not(planner_graph)
     removed = planner.plan_for_root("planner-test", "email_college")
     assert (removed.exposure_before, removed.exposure_after) == (4, 4)
     assert all(step.exposure_removed == 0 for step in removed.steps)
-    assert removed.remaining_accounts == ["canva", "coursera", "figma", "microsoft"]
-    assert all(account in removed.note for account in removed.remaining_accounts)
+    assert removed.remaining_accounts == ["canva", "college_workspace", "coursera", "figma", "microsoft"]
+    assert all(account in removed.note for account in ("canva", "coursera", "figma", "microsoft"))
+    assert (
+        "College Workspace · student@example.edu closes with the mailbox: save anything you need from it"
+        in removed.note
+    )
     assert planner.get_plan("planner-test", removed.id) == removed
 
 
@@ -234,7 +238,7 @@ def test_scenario_plan_apply_repairs_combined_exposure(planner_graph, old, new):
                 planner_graph, ScenarioRequest(kind="takeover", root_ids=[old])
             ).result.affected_accounts
         }
-    assert taken | lost == set()
+    assert taken | lost == ({"college_workspace"} if old == "email_college" else set())
     assert after.result.recovery_lost_accounts == []
 
 
@@ -356,7 +360,7 @@ def test_full_policy_fixture_scenario_plan_apply(monkeypatch, old, new):
                     g, ScenarioRequest(kind="takeover", root_ids=[old])
                 ).result.affected_accounts
             }
-        assert taken | lost == set()
+        assert taken | lost == ({"college_workspace"} if old == "email_college" else set())
         assert after.result.recovery_lost_accounts == []
     finally:
         g.delete()
@@ -373,6 +377,29 @@ def test_full_policy_deleting_college_recovery_does_not_clear_exposure(monkeypat
         plan = planner.plan_for_root("integration-test", "email_college")
         assert (plan.lockout_before, plan.lockout_after) == (4, 4)
         assert (plan.exposure_before, plan.exposure_after) == (4, 4)
-        assert set(plan.remaining_accounts) == {"figma", "canva", "coursera", "microsoft"}
+        assert set(plan.remaining_accounts) == {
+            "college_workspace",
+            "figma",
+            "canva",
+            "coursera",
+            "microsoft",
+        }
     finally:
         g.delete()
+
+
+def test_closing_host_is_not_migratable_even_with_a_use(planner_graph):
+    planner_graph.query(
+        "MATCH (a:Account {id: 'college_workspace'}), (r:Root {id: 'email_college'}) "
+        "CREATE (a)-[:USES {role: 'login_email', confirmed: true}]->(r)"
+    )
+    plan = planner.plan_for_root("planner-test", "email_college", "email_primary")
+    assert (plan.exposure_before, plan.exposure_after) == (4, 0)
+    assert (plan.lockout_before, plan.lockout_after) == (4, 0)
+    assert plan.remaining_accounts == ["college_workspace"]
+    assert "college_workspace" not in {step.account_id for step in plan.steps}
+    assert (
+        "College Workspace · student@example.edu closes with the mailbox: save anything you need from it"
+        in plan.note
+    )
+    assert planner.get_plan("planner-test", plan.id) == plan

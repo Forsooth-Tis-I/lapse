@@ -34,6 +34,7 @@ def test_graph_payload_dependencies_and_and_constraints(view_graph):
     assert nodes["splitwise"]["unknown"] is True
     assert nodes["google"]["affected"] is False
     assert nodes["google"]["round"] is None
+    assert nodes["google"]["label"] == "Google · demo@example.com"
     assert all(edge["source"] in nodes and edge["target"] in nodes for edge in result["edges"])
     assert len({edge["id"] for edge in result["edges"]}) == len(result["edges"])
     assert any(edge["source"] == "google" and edge["target"] == "email_primary" for edge in result["edges"])
@@ -85,7 +86,7 @@ def test_roots_account_detail_and_evidence_search(view_graph):
         "device_phone",
     }
     detail = views.account_detail("test", "github")
-    assert detail["account"]["display"] == "GitHub"
+    assert detail["account"]["display"] == "GitHub · demo@example.com"
     assert {use["root_id"] for use in detail["uses"]} == {"email_primary", "device_phone"}
     assert any(
         {need["id"] for need in method["needs"]} == {"email_primary", "device_phone"}
@@ -136,7 +137,7 @@ def test_stats_counts_real_nodes_and_edges(view_graph):
                 "linkedin",
             },
         ),
-        ("lockout", ["email_college"], {"figma", "canva", "coursera", "microsoft"}),
+        ("lockout", ["email_college"], {"college_workspace", "figma", "canva", "coursera", "microsoft"}),
     ],
 )
 def test_live_scenario_views_mark_affected_accounts(view_graph, kind, roots, affected):
@@ -162,3 +163,20 @@ def test_lockout_survivor_derivation_matches_actual_reached_state(view_graph):
     lost = scenarios.explain("test", result.id, "dropbox")
     assert lost.outcome == "lost_now"
     assert [(step.from_id, step.to_id) for step in lost.steps] == [("phone_old", "dropbox")]
+
+
+def test_explanation_uses_account_display_labels(view_graph):
+    result = scenarios.run_scenario("test", ScenarioRequest(kind="takeover", root_ids=["phone_old"]))
+    explanation = scenarios.explain("test", result.id, "notion")
+    assert (
+        next(step.to_label for step in explanation.steps if step.to_id == "google")
+        == "Google · demo@example.com"
+    )
+    assert (
+        next(step.from_label for step in explanation.steps if step.from_id == "google")
+        == "Google · demo@example.com"
+    )
+    assert (
+        next(step.to_label for step in explanation.steps if step.to_id == "notion")
+        == "Notion · demo@example.com"
+    )
