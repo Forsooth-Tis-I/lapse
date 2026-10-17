@@ -6,12 +6,23 @@ Lapse finds every account still tied to a phone number, email, or domain you no 
 
 Work in progress. See `docs/BUILD_PLAN.md`.
 
-## Quick start (local)
+## Run locally
 
 ```bash
-cp .env.example .env            # fill in values locally; never commit
-make up                         # FalkorDB on :6380, Browser on :3001
+cp .env.example .env             # fill in credentials locally
 uv sync
-make fixture                    # load the demo persona graph
-make test
+make keys                       # put the generated keys in .env
+# Create persona.local.yaml using docs/persona-setup.md.
+make doctor
+make demo                       # build and start the local Docker stack
+make fixture
 ```
+
+Open <http://localhost:8080>. FalkorDB uses port 6380, with its Browser on 3001.
+The bot uses long polling. `make tunnel` optionally prints a temporary public URL;
+use demo data and read-only demo mode for recordings. `make demo-down` stops the
+stack and keeps local data.
+
+For host services, headed browser login, configuration and troubleshooting, see
+[local deployment](docs/deploy.md). Use `make api`, `make worker`, and `make bot`
+in separate terminals after `make up`; headed browser login requires a host worker.
