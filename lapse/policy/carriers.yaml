@@ -1,0 +1,40 @@
+# Earliest reassignment after carrier disconnection/deactivation, not a promised reissue date.
+# Merely removing a SIM or stopping use does not start the regulatory holding period.
+carriers:
+  - id: jio_in
+    name: Jio
+    country: IN
+    reissue_after_days: 90
+    source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+  - id: airtel_in
+    name: Airtel
+    country: IN
+    reissue_after_days: 90
+    source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+  - id: vi_in
+    name: Vi
+    country: IN
+    reissue_after_days: 90
+    source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+  - id: bsnl_in
+    name: BSNL
+    country: IN
+    reissue_after_days: 90
+    source_url: https://api.sci.gov.in/supremecourt/2021/13468/13468_2021_3_45_47839_Judgement_30-Oct-2023.pdf
+  - id: generic_us
+    name: US carrier minimum
+    country: US
+    reissue_after_days: 45
+    source_url: https://recyclednumbers.cs.princeton.edu/
+  - id: tmobile_us
+    name: T-Mobile
+    country: US
+    # Carrier specifies a 45-90 day range. The schema stores its lower bound.
+    reissue_after_days: 45
+    source_url: https://www.t-mobile.com/support/account/change-your-phone-number
+  - id: verizon_us
+    name: Verizon
+    country: US
+    reissue_after_days: 45
+    source_url: https://www.verizon.com/support/disconnect-cancel-mobile/
+# No reliable AT&T-specific holding period found; use generic_us, not a guessed carrier rule.
