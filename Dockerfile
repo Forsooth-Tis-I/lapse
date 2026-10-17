@@ -6,7 +6,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PATH="/app/.venv/bin:$PATH" PYTHONUN
 COPY pyproject.toml uv.lock README.md ./
 COPY lapse ./lapse
 RUN uv sync --locked --no-dev
-EXPOSE 8000 8765
+EXPOSE 8000 8766
 CMD ["lapse-api"]
 
 FROM runtime AS api

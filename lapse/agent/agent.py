@@ -72,7 +72,7 @@ async def tool_transport(uid, turn_id):
     if transport == "inprocess":
         yield TurnTools(uid, turn_id, definitions=definitions)
     elif transport == "mcp":
-        url = os.getenv("MCP_URL", f"http://127.0.0.1:{os.getenv('MCP_PORT', '8765')}/mcp")
+        url = os.getenv("MCP_URL", f"http://127.0.0.1:{os.getenv('MCP_PORT', '8766')}/mcp")
         async with (
             streamable_http_client(url) as (read, write, _),
             ClientSession(read, write) as session,

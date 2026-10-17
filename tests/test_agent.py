@@ -411,7 +411,7 @@ async def test_mcp_transport_uses_real_client_session(offline, monkeypatch):
 
     @asynccontextmanager
     async def in_memory_http(url):
-        assert url == "http://127.0.0.1:8765/mcp"
+        assert url == "http://127.0.0.1:8766/mcp"
         async with (
             create_client_server_memory_streams() as (client_streams, server_streams),
             anyio.create_task_group() as group,
@@ -423,7 +423,7 @@ async def test_mcp_transport_uses_real_client_session(offline, monkeypatch):
                 group.cancel_scope.cancel()
 
     monkeypatch.setenv("AGENT_TOOL_TRANSPORT", "mcp")
-    monkeypatch.setenv("MCP_URL", "http://127.0.0.1:8765/mcp")
+    monkeypatch.setenv("MCP_URL", "http://127.0.0.1:8766/mcp")
     monkeypatch.setattr(agent, "streamable_http_client", in_memory_http)
     reply = await agent.respond("alice", "risk of my old number")
     assert reply["tool_calls"] == ["resolve", "takeover_if_reassigned"]

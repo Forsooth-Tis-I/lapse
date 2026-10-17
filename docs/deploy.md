@@ -29,7 +29,7 @@ make demo-down            # stop containers; retain ./data and ./browser_profile
 ```
 
 Open the app at <http://localhost:8080> and FalkorDB Browser at
-<http://localhost:3001>. API is on localhost:8000 and MCP on localhost:8765.
+<http://localhost:3001>. API is on localhost:8000 and MCP on localhost:8766.
 Containers reach FalkorDB at `falkordb:6379`; Compose overrides the host settings
 from `.env`. Existing FalkorDB configuration and the `lapse-falkordb` container
 name are retained. Do not start another checkout's stack against that container.
@@ -43,7 +43,7 @@ The web image builds the real API client and serves it with nginx on 8080;
 
 The API, worker, bot and MCP entrypoint implementations must be present before
 starting the stack. MCP's `run()` must select HTTP/SSE transport, bind to
-`0.0.0.0`, and honor `FASTMCP_PORT=8765`; a stdio-only server cannot serve the
+`0.0.0.0`, and honor `FASTMCP_PORT=8766`; a stdio-only server cannot serve the
 published port. Image builds alone do not verify these service interfaces.
 
 ## Host services and browser login

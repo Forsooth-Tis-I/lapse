@@ -66,14 +66,14 @@ services:
       context: .
       target: mcp
     ports:
-      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:8766:8766"
     environment:
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: 6379
       FASTMCP_HOST: 0.0.0.0
-      FASTMCP_PORT: 8765
+      FASTMCP_PORT: 8766
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8765), 2).close()"]
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8766), 2).close()"]
       interval: 30s
       timeout: 3s
       retries: 3
