@@ -16,6 +16,7 @@ from httpx import HTTPError
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from openai import APIError
+from pydantic import ValidationError
 from redis.exceptions import RedisError
 
 from lapse import llm
@@ -88,25 +89,49 @@ class TurnTools:
         changing = [
             root for root in self.catalog.get("roots", []) if root.get("status") in {"retiring", "closing"}
         ]
-        if not changing or len(self.calls) + 1 + len(changing) > MAX_TOOL_STEPS:
+        if not changing:
             return None
         from lapse.bot.cards import account_risk_card
         from lapse.contracts import Root, ScenarioResult
 
-        roots = await self.call("list_roots", {})
-        by_id = {root["id"]: Root.model_validate(root) for root in roots if isinstance(root, dict)}
+        roots = await self.call("list_roots", {}) if len(self.calls) < MAX_TOOL_STEPS else []
+        by_id = {}
+        for root in roots if isinstance(roots, list) else []:
+            try:
+                parsed = Root.model_validate(root)
+            except ValidationError:
+                continue
+            by_id[parsed.id] = parsed
         items = []
+        incomplete = []
         for root in changing:
+            metadata = by_id.get(root["id"])
+            if metadata is None or len(self.calls) >= MAX_TOOL_STEPS:
+                incomplete.append(metadata)
+                continue
             tool = "takeover_if_reassigned" if root["kind"] == "phone" else "lockout_if_lost"
             result = await self.call(tool, {"root_id": root["id"]})
-            if isinstance(result, dict) and "affected_accounts" in result and root["id"] in by_id:
-                items.append((by_id[root["id"]], ScenarioResult.model_validate(result)))
+            try:
+                scenario = ScenarioResult.model_validate(result)
+            except ValidationError:
+                incomplete.append(metadata)
+                continue
+            kind = "takeover" if tool == "takeover_if_reassigned" else "lockout"
+            if (
+                result.get("outcome") == "error"
+                or scenario.root_ids != [root["id"]]
+                or scenario.kind != kind
+                or scenario.actor != ("stranger" if kind == "takeover" else "user")
+            ):
+                incomplete.append(metadata)
+                continue
+            items.append((metadata, scenario))
         account_id = last["account"]["id"]
         affecting = [item for item in items if account_id in {a.node_id for a in item[1].affected_accounts}]
         # Keep the scenario that reaches this account last, so buttons and follow-ups use it.
         self.results = [r for r in self.results if not (isinstance(r, dict) and "affected_accounts" in r)]
         self.results += [result.model_dump(mode="json") for _, result in affecting]
-        return account_risk_card(last["account"], items)
+        return account_risk_card(last["account"], items, incomplete=incomplete)
 
     async def answer(self):
         if (text := await self.account_risk()) is not None:

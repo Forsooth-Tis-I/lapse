@@ -835,3 +835,94 @@ async def test_is_account_safe_checks_every_changing_root(offline):
     offline.llm = FakeLLM(message(calls=[("account_info", {"account_id": "gmail"})]))
     reply = await agent.respond("alice", "is gmail safe?")
     assert reply["text"]
+
+
+@pytest.mark.parametrize(
+    "outcomes, affected, incomplete",
+    [
+        (["error", "error"], False, True),
+        (["ok", "error"], True, True),
+        (["ok", "error"], False, True),
+        (["malformed", "ok"], False, True),
+        (["wrong_root", "ok"], False, True),
+        (["ok", "ok"], False, False),
+    ],
+)
+async def test_account_risk_never_reassures_on_incomplete_checks(
+    world, monkeypatch, outcomes, affected, incomplete
+):
+    roots = [
+        {"id": "old", "kind": "phone", "label": "Old phone", "status": "retiring", "last4": "4321"},
+        {
+            "id": "college",
+            "kind": "email",
+            "label": "College",
+            "status": "closing",
+            "address": "demo@example.edu",
+        },
+    ]
+
+    def dispatch(uid, name, arguments):
+        if name == "list_roots":
+            return roots
+        outcome = outcomes[0 if arguments["root_id"] == "old" else 1]
+        if outcome == "error":
+            return {"outcome": "error", "message": "Unavailable. No safety conclusion can be drawn."}
+        if outcome == "malformed":
+            return {"affected_accounts": []}
+        kind = "takeover" if name == "takeover_if_reassigned" else "lockout"
+        return {
+            "id": arguments["root_id"],
+            "kind": kind,
+            "root_ids": ["other"] if outcome == "wrong_root" else [arguments["root_id"]],
+            "actor": "stranger" if kind == "takeover" else "user",
+            "rounds": 1,
+            "affected_accounts": [
+                {"node_id": "account", "label": "Canva", "node_type": "Account", "round": 1}
+            ]
+            if affected and kind == "takeover"
+            else [],
+            "direct_accounts": [],
+            "unknown_accounts": [],
+            "total_accounts": 1,
+            "ms": 0,
+        }
+
+    monkeypatch.setattr(agent, "dispatch", dispatch)
+    tools = agent.TurnTools(
+        uid="test",
+        turn_id="turn",
+        catalog={"roots": roots},
+        results=[{"account": {"id": "account", "display": "Canva", "modelled": True}, "methods": []}],
+    )
+    text = await tools.account_risk()
+    assert ("assessment is incomplete" in text) == incomplete
+    assert ("don't put" in text) == (not incomplete)
+    if affected:
+        assert "could get into" in text
+        assert tools.results[-1]["root_ids"] == ["old"]
+        assert "fix the confirmed risks" in text
+    if not incomplete:
+        assert "under the methods we model" in text
+
+
+@pytest.mark.parametrize(
+    "roots_response",
+    [
+        {"outcome": "error"},
+        [],
+        [{"id": "old", "kind": "invalid"}],
+    ],
+)
+async def test_account_risk_requires_valid_root_metadata(world, monkeypatch, roots_response):
+    monkeypatch.setattr(agent, "dispatch", lambda uid, name, args: roots_response)
+    tools = agent.TurnTools(
+        uid="test",
+        turn_id="turn",
+        catalog={"roots": [{"id": "old", "kind": "phone", "status": "retiring"}]},
+        results=[{"account": {"id": "account", "display": "Canva", "modelled": True}, "methods": []}],
+    )
+    text = await tools.account_risk()
+    assert "assessment is incomplete" in text
+    assert "don't put" not in text
+    assert tools.calls == ["list_roots"]

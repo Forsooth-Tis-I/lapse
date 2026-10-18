@@ -3,8 +3,17 @@ from datetime import UTC, date, datetime
 import pytest
 
 from lapse.agent import guard
-from lapse.bot.cards import format_date, plan_card, scenario_card
+from lapse.bot.cards import account_risk_card, format_date, plan_card, scenario_card
 from lapse.contracts import Change, Plan, Reached, Root, ScenarioResult
+
+
+def test_incomplete_risk_card_escapes_root_labels():
+    root = Root(id="closing", kind="email", label="<inbox>", address="<demo@example.edu>")
+    text = account_risk_card({"id": "account", "display": "Canva"}, [], incomplete=[root])
+    assert "assessment is incomplete" in text
+    assert "&lt;demo@example.edu&gt;" in text
+    assert "<demo@example.edu>" not in text
+    assert "don't put" not in text
 
 
 @pytest.mark.parametrize(

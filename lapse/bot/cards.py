@@ -206,7 +206,7 @@ def risk_summary(items, *, today=None) -> str:
     return "\n".join(lines)
 
 
-def account_risk_card(account: dict, items, *, today=None) -> str:
+def account_risk_card(account: dict, items, *, today=None, incomplete=()) -> str:
     name = account_name(account["display"], account.get("identifier"))
     lines = []
     for root, result in items:
@@ -224,8 +224,17 @@ def account_risk_card(account: dict, items, *, today=None) -> str:
             lines.append(
                 f"When you lose {root_name(root)}{dated}, you could lose access to {name}{condition}."
             )
+    if incomplete:
+        contacts = join_names(root_name(root) if root else "a changing contact" for root in incomplete)
+        warning = (
+            f"I couldn't complete the checks for {contacts}. "
+            "This assessment is incomplete; I can't rule out other risks."
+        )
+        if not lines:
+            return f"I couldn't complete the risk assessment for your {name}. {warning}"
+        return " ".join(lines) + " " + warning + " Want me to fix the confirmed risks?"
     if not lines:
-        return f"The changes you've told me about don't put your {name} at risk based on how it lets you sign in and get back in."
+        return f"The changes you've told me about don't put your {name} at risk under the methods we model."
     return " ".join(lines) + " Want me to fix it?"
 
 
