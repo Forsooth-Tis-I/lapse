@@ -166,6 +166,15 @@ def _scenario(result, results):
     return " ".join(lines)
 
 
+def _node_name(label: str) -> str:
+    phone = re.fullmatch(r"••(\d{4})(?: \(([^()]+)\))?", label)
+    if phone:
+        return f"your {escape(phone[2]) + ' ' if phone[2] else ''}number (••{phone[1]})"
+    if " · " not in label:
+        return f"<b>{escape(label)}</b>"
+    return account_name(label)
+
+
 def templated(results: list) -> str:
     scenarios = {r["kind"]: r for r in results if isinstance(r, dict) and "affected_accounts" in r}
     if len(scenarios) > 1 and isinstance(results[-1], dict) and "affected_accounts" in results[-1]:
@@ -193,6 +202,28 @@ def templated(results: list) -> str:
             continue
         if not isinstance(result, dict):
             continue
+        if result.get("outcome") == "keystones":
+            items = result["keystones"]
+            if not items:
+                return "I didn't find one account that many others depend on, under the methods we model."
+            lines = ["Fix these first. The most chains pass through them:"]
+            for index, item in enumerate(items, 1):
+                count = item["downstream"]
+                lines.append(
+                    f"{index}. {_node_name(item['label'])}: "
+                    f"{count} {'account depends' if count == 1 else 'accounts depend'} on it."
+                )
+            lines.append("Accounts that need several things at once can add more.")
+            return "\n".join(lines)
+        if result.get("outcome") == "route":
+            names = " → ".join(_node_name(step["label"]) for step in result["route"])
+            hops = result["hops"]
+            return f"The shortest way in takes {hops} {'step' if hops == 1 else 'steps'}: {names}."
+        if result.get("outcome") == "no_single_route":
+            return (
+                "There's no way in that needs only one thing. Someone with several of your accounts "
+                "at once could still get in, so I can't promise it's safe."
+            )
         if result.get("outcome") == "kept":
             return f"{escape(result['label'])} is the number you're keeping, so nothing's at risk there."
         if result.get("outcome") in {"error", "not_in_graph", "unknown_root"}:

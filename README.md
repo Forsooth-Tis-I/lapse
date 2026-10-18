@@ -26,7 +26,7 @@ A contact list can show which accounts mention a number. It cannot tell whether 
 
 Lapse uses an AND/OR closure. Any eligible method can grant an account, but every prerequisite within that method must be controlled. A stranger has the reassigned root and no passwords. A user keeps password knowledge and the possession roots they still hold. The closure repeats until it gains nothing.
 
-**Depth 1** means the old number alone satisfies a method. **Full chain** also includes accounts reached through the recovered Gmail mailbox. Dropbox's model requires both the email reset and its enrolled SMS factor. The old number supplies SMS; the mailbox supplies the reset email. Treating those requirements as independent edges would report a takeover too early. An authenticator factor the stranger does not possess can block another branch.
+**Depth 1** means the old number alone satisfies a method. **Full chain** also includes accounts reached through the recovered Gmail mailbox. The map's **Hops** slider steps through the chain one closure round at a time (old number → Google → Gmail → Notion is 3 hops). Dropbox's model requires both the email reset and its enrolled SMS factor. The old number supplies SMS; the mailbox supplies the reset email. Treating those requirements as independent edges would report a takeover too early. An authenticator factor the stranger does not possess can block another branch.
 
 The planner tries changes on graph copies and reruns the same evaluator. The phone plan reduces distinct affected accounts from <!-- claim:plan_phone_old.before -->11<!-- /claim --> to <!-- claim:plan_phone_old.after -->0<!-- /claim --> in <!-- claim:plan_phone_old.steps -->7<!-- /claim --> proposed steps. These are simulated outcomes, not completed external changes. Takeover and lockout can overlap, so the planner counts their union.
 
@@ -38,7 +38,8 @@ FalkorDB supplies the following mechanisms:
 | `GRAPH.COPY` | The planner tests candidate changes in disposable sandboxes. A Redis lock serializes copies, with bounded retries for fork conflicts. |
 | Variable-length paths | `wp4_mailbox_paths.cypher` walks `DERIVED*1..8` to identify reach through a mailbox host. Full explanations retain all required branches. |
 | Full-text index | `view_search_evidence.cypher` searches evidence subjects and bounded snippets. |
-| `algo.BFS` fan-out | Planned lower bound over password-free, single-need `ENABLES` edges. The edges exist; a BFS caller is not wired in this revision. Closure supplies the displayed counts. |
+| `algo.betweenness` | `keystones` tool and the map's "Fix first" line. Finds the nodes that single-factor chains pass through over password-free, single-need `ENABLES` edges. FalkorDB samples betweenness, so ranking uses the exact chain count (upstream × downstream) and reports the score as an estimate. |
+| `algo.SPpaths` | `path_between` tool and the "shortest single-factor route" line in account details, e.g. old number → Google → Gmail → Notion in 3 hops. No route means the account needs several factors at once (AND), never "safe". Closure supplies the displayed counts. |
 | Policy-event fan-out | Recompile affected accounts across tenant graphs, compare scenario outcomes, and notify changed tenants. Dry runs use copies. See [signals](docs/signals.md). |
 
 Without FalkorDB, Lapse cannot resolve accounts, compute scenarios, choose fix order, retrieve evidence, or resume graph-backed plans. There is no separate in-memory answer engine. [The data model](docs/data-model.md) walks through the closure algorithm.
@@ -47,7 +48,7 @@ Without FalkorDB, Lapse cannot resolve accounts, compute scenarios, choose fix o
 
 Telegram is the ongoing conversation, in the Muse/Dots style. The agent can alert you before you ask. Reissue countdowns, mailbox closure, domain expiry, stale contacts, new devices, and missed accounts trigger graph checks.
 
-The same registry exposes <!-- claim:tools.count -->12<!-- /claim --> fixed MCP tools. The agent selects tools and explains results. It never writes Cypher. Every call is stored as a `ToolCall` node with tool arguments, named query, elapsed milliseconds, row count, and outcome, available from `GET /api/trace`. The web app is kept to the essentials (account map, fix plan, agent screen, connections); conversation happens in Telegram. The default transport calls the registry in-process; `AGENT_TOOL_TRANSPORT=mcp` uses MCP HTTP. [Tool contracts](docs/tools.md).
+The same registry exposes <!-- claim:tools.count -->14<!-- /claim --> fixed MCP tools. The agent selects tools and explains results. It never writes Cypher. Every call is stored as a `ToolCall` node with tool arguments, named query, elapsed milliseconds, row count, and outcome, available from `GET /api/trace`. The web app is kept to the essentials (account map, fix plan, agent screen, connections); conversation happens in Telegram. The default transport calls the registry in-process; `AGENT_TOOL_TRANSPORT=mcp` uses MCP HTTP. [Tool contracts](docs/tools.md).
 
 Typing "approve" asks for the approval controls. A human action authorizes execution. Telegram approval tokens are scoped, expiring, and single-use; the local web approval route queues the selected change.
 
@@ -101,7 +102,7 @@ The diagram shows the main relationships. [Full schema, properties, indexes, and
 
 ## The queries
 
-There are <!-- claim:queries.count -->111<!-- /claim --> named `.cypher` files. The table below is generated from `lapse/graph/queries/` and [reviewed descriptions](docs/query-descriptions.json). `schema.cypher` holds index administration outside that count.
+There are <!-- claim:queries.count -->113<!-- /claim --> named `.cypher` files. The table below is generated from `lapse/graph/queries/` and [reviewed descriptions](docs/query-descriptions.json). `schema.cypher` holds index administration outside that count.
 
 Start with [`closure_round.cypher`](lapse/graph/queries/closure_round.cypher). Its `all(x IN needs WHERE x IN $have)` condition is the AND gate. Zero-need methods require password knowledge. Disabled mailbox methods cannot grant access after closure.
 
@@ -114,6 +115,8 @@ For explain-path behavior, [`explain.cypher`](lapse/graph/queries/explain.cypher
 | Named query | Description |
 | --- | --- |
 | [account_evidence](lapse/graph/queries/account_evidence.cypher) | Find evidence supporting or mentioning path nodes. |
+| [algo_keystones](lapse/graph/queries/algo_keystones.cypher) | Rank nodes that single-factor chains pass through; algo.betweenness estimate plus exact upstream x downstream chain count. |
+| [algo_shortest_path](lapse/graph/queries/algo_shortest_path.cypher) | Shortest single-factor route between two nodes over ENABLES with algo.SPpaths. |
 | [bot_confirm_use](lapse/graph/queries/bot_confirm_use.cypher) | Confirm a recorded account-to-root role. |
 | [bot_dismiss_signal](lapse/graph/queries/bot_dismiss_signal.cypher) | Dismiss a signal. |
 | [bot_remove_use](lapse/graph/queries/bot_remove_use.cypher) | Remove an incorrect account-to-root role. |

@@ -10,6 +10,8 @@ import {
   toolCallRecordSchema,
   agentScreenSchema,
   graphStatsSchema,
+  keystonesSchema,
+  routeSchema,
   onboardingResultSchema,
   ingestRunSchema,
   graphEventSchema,
@@ -36,6 +38,9 @@ export const endpoints = {
   trace: "/api/trace",
   screen: "/api/agent/screen",
   stats: "/api/stats",
+  keystones: "/api/keystones",
+  path: (fromId: string, toId: string) =>
+    `/api/path?from_id=${segment(fromId)}&to_id=${segment(toId)}`,
   onboarding: "/api/onboarding",
   ingest: "/api/ingest/run",
   events: "/api/events",
@@ -103,6 +108,8 @@ export function createRestApi(url = baseUrl): LapseApi {
       return screen;
     },
     getStats: () => request(endpoints.stats, graphStatsSchema),
+    getKeystones: () => request(endpoints.keystones, keystonesSchema),
+    getPath: (fromId, toId) => request(endpoints.path(fromId, toId), routeSchema),
     onboard: (input) => {
       const validated = onboardingRequestSchema.safeParse(input);
       if (!validated.success)

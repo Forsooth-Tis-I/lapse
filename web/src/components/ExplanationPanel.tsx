@@ -1,10 +1,11 @@
 import { ArrowDown, Mail, ShieldCheck, X } from "lucide-react";
-import type { Explanation, GraphData, ScenarioResult } from "../api";
+import type { Explanation, GraphData, Route, ScenarioResult } from "../api";
 
 export function ExplanationPanel({
   selected,
   graph,
   explanation,
+  route = null,
   loading,
   error,
   results,
@@ -13,6 +14,7 @@ export function ExplanationPanel({
   selected: string | null;
   graph: GraphData;
   explanation: Explanation | null;
+  route?: Route | null;
   loading: boolean;
   error: string;
   results: ScenarioResult[];
@@ -98,6 +100,14 @@ export function ExplanationPanel({
               <p className="explanation-subtitle">
                 The graph found this path under the methods we model.
               </p>
+              {route && (
+                <p className="shortest-route">
+                  <span className="eyebrow">SHORTEST SINGLE-FACTOR ROUTE</span>
+                  {route.outcome === "route"
+                    ? `${route.route.map((step) => step.label).join(" → ")} (${route.hops} ${route.hops === 1 ? "hop" : "hops"})`
+                    : "None. Reaching this account takes several factors at once."}
+                </p>
+              )}
               <ol className="path-chain">
                 {explanation.steps.map((step, i) => (
                   <li key={`${step.method_id}-${step.from_id}-${i}`}>

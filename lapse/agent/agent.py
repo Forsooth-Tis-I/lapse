@@ -234,6 +234,9 @@ async def fallback(text, tools, previous):
         if plan_id:
             await tools.call("plan_status", {"plan_id": plan_id})
         return await tools.answer()
+    if re.search(r"fix\s+first|most\s+important|single\s+point|keystone", lower):
+        await tools.call("keystones", {})
+        return await tools.answer()
     why = re.search(r"why\s+is\s+(.+?)\s+at\s+risk", text, re.IGNORECASE)
     loss = re.search(
         r"(?:what\s+(?:happens\s+)?if\s+i\s+lose|(?:if\s+i\s+)?lose|lost)\s+(.+)", text, re.IGNORECASE

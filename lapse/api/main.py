@@ -295,6 +295,25 @@ def legacy_screenshot(name: str, uid: Uid):
     return FileResponse(screenshot_path(uid, name))
 
 
+@app.get("/api/keystones")
+def keystones(uid: Uid, limit: int = 3):
+    return graph_call(
+        uid, "lapse.graph.algorithms", "keystones", max(1, min(limit, 10)), audit_args={"limit": limit}
+    )
+
+
+@app.get("/api/path")
+def path(uid: Uid, from_id: str, to_id: str):
+    return graph_call(
+        uid,
+        "lapse.graph.algorithms",
+        "shortest_path",
+        from_id,
+        to_id,
+        audit_args={"from_id": from_id, "to_id": to_id},
+    )
+
+
 @app.get("/api/stats", response_model=GraphStats)
 def stats(uid: Uid):
     return graph_call(uid, "lapse.graph.views", "stats")

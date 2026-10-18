@@ -269,6 +269,32 @@ export const graphStatsSchema = z.object({
   edges: z.number().int(),
   last_query_ms: z.number(),
 });
+export const keystoneSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  node_type: z.enum(["Root", "Account"]),
+  score: z.number(),
+  downstream: z.number().int(),
+  downstream_labels: z.array(z.string()),
+});
+export const keystonesSchema = z.object({
+  outcome: z.literal("keystones"),
+  algorithm: z.string(),
+  keystones: z.array(keystoneSchema),
+});
+export const routeSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("route"),
+    algorithm: z.string(),
+    hops: z.number().int(),
+    route: z.array(z.object({ id: z.string(), label: z.string() })),
+  }),
+  z.object({
+    outcome: z.literal("no_single_route"),
+    from_id: z.string(),
+    to_id: z.string(),
+  }),
+]);
 export const agentScreenSchema = z.object({
   url: z.string().nullable(),
   caption: z.string(),
@@ -348,6 +374,9 @@ export type GraphNode = z.infer<typeof graphNodeSchema>;
 export type GraphEdge = z.infer<typeof graphEdgeSchema>;
 export type GraphData = z.infer<typeof graphDataSchema>;
 export type GraphStats = z.infer<typeof graphStatsSchema>;
+export type Keystone = z.infer<typeof keystoneSchema>;
+export type Keystones = z.infer<typeof keystonesSchema>;
+export type Route = z.infer<typeof routeSchema>;
 export type AgentScreen = z.infer<typeof agentScreenSchema>;
 export type IngestProgress = z.infer<typeof ingestProgressSchema>;
 export type OnboardingRequest = z.infer<typeof onboardingRequestSchema>;
@@ -402,6 +431,8 @@ export interface LapseApi {
   getTrace(since?: string): Promise<ToolCallRecord[]>;
   getScreen(): Promise<AgentScreen>;
   getStats(): Promise<GraphStats>;
+  getKeystones(): Promise<Keystones>;
+  getPath(fromId: string, toId: string): Promise<Route>;
   onboard(input: OnboardingRequest): Promise<OnboardingResult>;
   runIngest(inboxes?: string[]): Promise<{ started: boolean }>;
   subscribe(

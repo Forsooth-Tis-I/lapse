@@ -5,7 +5,6 @@ import {
   CheckCheck,
   CircleHelp,
   GitBranch,
-  Layers3,
   Moon,
   Radio,
   Sun,
@@ -19,11 +18,13 @@ import type {
   Explanation,
   GraphData,
   IngestProgress,
+  Keystone,
   Plan,
   Root,
+  Route,
   ScenarioResult,
 } from "./api";
-import { AccountGraph } from "./components/AccountGraph";
+import { AccountGraph, displayReach } from "./components/AccountGraph";
 import { ExplanationPanel } from "./components/ExplanationPanel";
 import { PlanBoard } from "./components/PlanBoard";
 import { AgentPanel } from "./components/AgentPanel";
@@ -77,7 +78,8 @@ export default function App() {
   const [page, setPage] = useState<Page>("graph");
   const [light, setLight] = useState(false);
   const [preset, setPreset] = useState<Preset>("takeover");
-  const [depth, setDepth] = useState<"direct" | "full">("direct");
+  const [hops, setHops] = useState(1);
+  const [keystones, setKeystones] = useState<Keystone[]>([]);
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [roots, setRoots] = useState<Root[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
@@ -97,20 +99,26 @@ export default function App() {
   const [explanation, setExplanation] = useState<Explanation | null>(null);
   const [explanationError, setExplanationError] = useState("");
   const [explaining, setExplaining] = useState(false);
+  const [route, setRoute] = useState<Route | null>(null);
   const [creating, setCreating] = useState(false);
   const results = scenarios.filter(
     (result) => preset === "both" || result.kind === preset,
   );
-  const directCount = new Set(
-    results.flatMap((result) => result.direct_accounts),
-  ).size;
-  const fullCount = new Set(
-    results.flatMap((result) =>
-      result.affected_accounts
-        .filter((item) => item.node_type === "Account")
+  const reached = graph
+    ? displayReach(graph, results)
+    : results.flatMap((result) => result.affected_accounts);
+  const maxHops = Math.max(1, ...reached.map((item) => item.round));
+  const shownHops = Math.min(hops, maxHops);
+  const countAt = (limit: number) =>
+    new Set(
+      reached
+        .filter((item) => item.node_type === "Account" && item.round <= limit)
         .map((item) => item.node_id),
-    ),
-  ).size;
+    ).size;
+  const directCount = countAt(1);
+  const fullCount = countAt(maxHops);
+  const hopCount = countAt(shownHops);
+  const topKeystone = keystones[0];
   const unknownCount = new Set(
     results.flatMap((result) => result.unknown_accounts),
   ).size;
@@ -138,6 +146,18 @@ export default function App() {
     setRoots(nextRoots);
     setScenarios(nextScenarios);
   }, []);
+
+  useEffect(() => {
+    if (!graph) return;
+    let active = true;
+    api
+      .getKeystones()
+      .then((value) => active && setKeystones(value.keystones))
+      .catch(() => active && setKeystones([]));
+    return () => {
+      active = false;
+    };
+  }, [graph]);
 
   useEffect(() => {
     let active = true;
@@ -259,6 +279,13 @@ export default function App() {
     }
     let active = true;
     setExplaining(true);
+    setRoute(null);
+    const rootId = selectedResult.root_ids[0];
+    if (rootId)
+      void api
+        .getPath(rootId, selected)
+        .then((value) => active && setRoute(value))
+        .catch(() => active && setRoute(null));
     void api
       .explain(selectedResult.id, selected)
       .then((value) => {
@@ -429,12 +456,12 @@ export default function App() {
               <div className="summary-strip">
                 <div className="reach-summary">
                   <span className="eyebrow">ACCOUNTS AT RISK</span>
-                  <div className="reach-numbers" aria-label={`${directCount} direct, ${fullCount} full chain`}>
+                  <div className="reach-numbers" aria-label={`${directCount} at 1 hop, ${fullCount} at ${maxHops} hops`}>
                     <strong>{directCount}</strong>
-                    <span>direct</span>
+                    <span>1 hop</span>
                     <ArrowRight size={22} />
                     <strong className="full-count">{fullCount}</strong>
-                    <span>full chain</span>
+                    <span>{maxHops} hops</span>
                   </div>
                 </div>
                 <div className="unknown-summary">
@@ -493,31 +520,38 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                    <div
-                      className="depth-control"
-                      role="group"
-                      aria-label="Depth"
-                    >
-                      <button
-                        aria-pressed={depth === "direct"}
-                        onClick={() => setDepth("direct")}
-                      >
-                        Direct only
-                      </button>
-                      <button
-                        aria-pressed={depth === "full"}
-                        onClick={() => setDepth("full")}
-                      >
-                        <Layers3 size={14} />
-                        Full chain
-                      </button>
-                    </div>
+                    <label className="hop-control">
+                      <span>Hops</span>
+                      <input
+                        type="range"
+                        min={1}
+                        max={maxHops}
+                        step={1}
+                        value={shownHops}
+                        aria-label="Hops"
+                        aria-valuetext={`${shownHops} of ${maxHops}, ${hopCount} accounts`}
+                        onChange={(event) => setHops(Number(event.target.value))}
+                      />
+                      <output aria-live="polite">
+                        {shownHops} / {maxHops} · {hopCount} accounts
+                      </output>
+                    </label>
                   </div>
+                  {topKeystone && (
+                    <p className="keystone-line">
+                      <span className="keystone-dot" aria-hidden="true" />
+                      Fix first: <strong>{topKeystone.label}</strong> ·{" "}
+                      {topKeystone.downstream}{" "}
+                      {topKeystone.downstream === 1 ? "account depends" : "accounts depend"} on it
+                    </p>
+                  )}
                   {graph ? (
                     <AccountGraph
                       graph={graph}
                       results={results}
-                      depth={depth}
+                      hops={shownHops}
+                      maxHops={maxHops}
+                      keystoneIds={keystones.map((item) => item.id)}
                       selected={selected}
                       explanation={explanation}
                       onSelect={setSelected}
@@ -585,6 +619,7 @@ export default function App() {
                     selected={selected}
                     graph={graph}
                     explanation={explanation}
+                    route={route}
                     loading={explaining}
                     error={explanationError}
                     results={results}

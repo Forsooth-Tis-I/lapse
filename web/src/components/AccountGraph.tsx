@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import cytoscape from "cytoscape";
 import type { Core, StylesheetJson } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import { Maximize2, Minus, Plus } from "lucide-react";
 import type { Explanation, GraphData, ScenarioResult } from "../api";
-import { useReducedMotion } from "../useReducedMotion";
 
 cytoscape.use(dagre);
 
@@ -137,6 +136,14 @@ const graphStyle: StylesheetJson = [
     },
   },
   {
+    selector: "node.keystone",
+    style: {
+      "border-width": 3,
+      "border-style": "double",
+      "border-color": "#e3c46b",
+    },
+  },
+  {
     selector: "node:selected",
     style: { "border-width": 3, "border-color": "#f0eccb" },
   },
@@ -158,7 +165,9 @@ export function displayReach(graph: GraphData, results: ScenarioResult[]) {
 export function AccountGraph({
   graph,
   results,
-  depth,
+  hops,
+  maxHops,
+  keystoneIds = [],
   selected,
   explanation,
   onSelect,
@@ -166,7 +175,9 @@ export function AccountGraph({
 }: {
   graph: GraphData;
   results: ScenarioResult[];
-  depth: "direct" | "full";
+  hops: number;
+  maxHops: number;
+  keystoneIds?: string[];
   selected: string | null;
   explanation: Explanation | null;
   onSelect: (id: string) => void;
@@ -176,9 +187,6 @@ export function AccountGraph({
   const instance = useRef<Core | null>(null);
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
-  const reduced = useReducedMotion();
-  const [round, setRound] = useState(1);
-  const maxRound = Math.max(1, ...results.map((result) => result.rounds));
   const scenarioKey = results.map((result) => result.id).join(":");
   const displayReached = displayReach(graph, results);
   const reachedIds = displayReached.map((item) => item.node_id);
@@ -220,15 +228,6 @@ export function AccountGraph({
     if (node.root?.kind === "phone" || node.root?.kind === "device")
       relevantIds.add(node.id);
   const membershipKey = [...relevantIds].sort().join(":");
-
-  useEffect(() => {
-    setRound(depth === "direct" ? 1 : reduced ? maxRound : 1);
-    if (depth !== "full" || reduced) return;
-    const timers = Array.from({ length: maxRound - 1 }, (_, i) =>
-      window.setTimeout(() => setRound(i + 2), (i + 1) * 650),
-    );
-    return () => timers.forEach(window.clearTimeout);
-  }, [depth, maxRound, scenarioKey, reduced]);
 
   useEffect(() => {
     if (!container.current) return;
@@ -331,21 +330,19 @@ export function AccountGraph({
     const reached = new Map(
       displayReached.map((item) => [item.node_id, item] as const),
     );
-    const direct = new Set(results.flatMap((result) => result.direct_accounts));
     const seeds = new Set(results.flatMap((result) => result.root_ids));
     const unknown = new Set(
       results.flatMap((result) => result.unknown_accounts),
     );
     const visible = (id: string) => {
       const item = reached.get(id);
-      return (
-        !item || (depth === "direct" ? direct.has(id) : item.round <= round)
-      );
+      return !item || item.round <= hops;
     };
     cy.batch(() => {
       cy.elements().removeClass(
-        "safe takeover lockout unknown unrevealed dimmed highlighted",
+        "safe takeover lockout unknown unrevealed dimmed highlighted keystone",
       );
+      for (const id of keystoneIds) cy.getElementById(id).addClass("keystone");
       for (const node of graph.nodes) {
         const element = cy.getElementById(node.id);
         const item = reached.get(node.id);
@@ -394,7 +391,7 @@ export function AccountGraph({
           cy.getElementById(selected).neighborhood().removeClass("dimmed");
       }
     });
-  }, [graph, results, depth, round, selected, explanation, fixedAccountIds]);
+  }, [graph, results, hops, keystoneIds, selected, explanation, fixedAccountIds]);
 
   return (
     <div className="graph-visual">
@@ -406,13 +403,13 @@ export function AccountGraph({
       />
       <div className="graph-corner">
         <span className="mono">
-          {depth === "direct" ? "DEPTH 1" : `ROUND ${round} / ${maxRound}`}
+          HOP {Math.min(hops, maxHops)} / {maxHops}
         </span>
         <span>
-          {depth === "direct"
+          {hops <= 1
             ? "The connections you can see."
-            : round < maxRound
-              ? "Following the next connection…"
+            : hops < maxHops
+              ? "Each hop follows one more account."
               : "The complete chain, under modelled methods."}
         </span>
       </div>

@@ -1,5 +1,7 @@
 {
   "account_evidence": "Find evidence supporting or mentioning path nodes.",
+  "algo_keystones": "Rank nodes that single-factor chains pass through; algo.betweenness estimate plus exact upstream x downstream chain count.",
+  "algo_shortest_path": "Shortest single-factor route between two nodes over ENABLES with algo.SPpaths.",
   "bot_confirm_use": "Confirm a recorded account-to-root role.",
   "bot_dismiss_signal": "Dismiss a signal.",
   "bot_remove_use": "Remove an incorrect account-to-root role.",
