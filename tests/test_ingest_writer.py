@@ -515,3 +515,79 @@ def test_security_notice_to_a_recovery_inbox_stays_on_the_owning_account(graph):
     assert g.ro_query("MATCH (:Evidence)-[:SUPPORTS]->(a:Account {id: 'ms'}) RETURN count(*)").result_set == [
         [2]
     ]
+
+
+@pytest.mark.parametrize("kind", ["otp_email", "contact_changed"])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_recovery_evidence_replay_preserves_roles_and_compiled_methods(graph, monkeypatch, kind, legacy):
+    g, _, _ = graph
+    monkeypatch.delitem(sys.modules, "lapse.policy.compile")
+    g.query(
+        "MATCH (college:Email {id:'email_college'}) "
+        "CREATE (a:Account {id:'ms', service_id:'microsoft', identifier:'demo@example.org'}), "
+        "(a)-[:USES {role:'recovery_email', confirmed:true}]->(college)"
+    )
+    notice = event(
+        inbox="email_college",
+        account_identifier="demo@example.edu",
+        service_id="microsoft",
+        event=kind,
+        phone_last4=[],
+        sender="notice@microsoft.com",
+        sender_domain="microsoft.com",
+        subject="Microsoft account security info was added" if kind == "contact_changed" else "Sign-in code",
+        snippet="Security information for de**o@example.org.",
+        contact_change=ContactChange(kind="email", new_email="de**o@example.org")
+        if kind == "contact_changed"
+        else None,
+    )
+    writer.write_events("test", [notice, notice])
+    baseline = snapshot(g)
+    assert g.ro_query("MATCH (m:Method) RETURN count(m)").result_set[0][0] > 0
+    if legacy:
+        g.query("MATCH (e:Evidence) REMOVE e.inbox_role")
+    writer.write_events("test", [notice])
+    writer.write_events("test", [notice])
+    assert snapshot(g) == baseline
+    assert uses(g, "microsoft") == [["recovery_email", "email_college", True]]
+    assert g.ro_query("MATCH (e:Evidence) RETURN e.inbox_role").result_set == [["recovery_email"]]
+
+
+def test_recorded_recovery_attribution_survives_removed_dependency(graph):
+    g, _, _ = graph
+    g.query(
+        "MATCH (r:Root {id:'email_college'}) "
+        "CREATE (a:Account {id:'ms', service_id:'microsoft', identifier:'demo@example.org'}), "
+        "(a)-[:USES {role:'recovery_email', confirmed:true}]->(r)"
+    )
+    notice = event(inbox="email_college", service_id="microsoft", event="otp_email", phone_last4=[])
+    writer.write_events("test", [notice])
+    g.query("MATCH (:Account)-[u:USES {role:'recovery_email'}]->() DELETE u")
+    writer.write_events("test", [notice])
+    assert uses(g, "microsoft") == [["recovery_email", "email_college", False]]
+
+
+def test_login_inbox_replay_is_idempotent(graph):
+    g, _, _ = graph
+    notice = event(event="otp_email", phone_last4=[])
+    writer.write_events("test", [notice])
+    before = snapshot(g)
+    writer.write_events("test", [notice, notice])
+    assert snapshot(g) == before
+    assert uses(g, "google") == [["login_email", "email_primary", True]]
+
+
+def test_ambiguous_recovery_owner_is_rejected(graph):
+    g, _, _ = graph
+    g.query(
+        "MATCH (r:Root {id:'email_college'}) "
+        "CREATE (a:Account {id:'one', service_id:'microsoft', identifier:'one@example.org'}), "
+        "(b:Account {id:'two', service_id:'microsoft', identifier:'two@example.org'}), "
+        "(a)-[:USES {role:'recovery_email'}]->(r), (b)-[:USES {role:'recovery_email'}]->(r)"
+    )
+    before = snapshot(g)
+    with pytest.raises(ValueError, match="Ambiguous recovery account identity"):
+        writer.write_events(
+            "test", [event(inbox="email_college", service_id="microsoft", event="otp_email", phone_last4=[])]
+        )
+    assert snapshot(g) == before

@@ -81,8 +81,15 @@ def _recovery_account(rows: list[dict], identifier: str) -> dict | None:
         row
         for row in rows
         if identifier in row.get("recovery_emails", [])
-        and identifier not in {row["account"].get("identifier"), *row["emails"]}
+        and identifier
+        not in {
+            row["account"].get("identifier"),
+            *row["emails"],
+            *row["account"].get("previous_identifiers", []),
+        }
     ]
+    if len(matches) > 1:
+        raise ValueError("Ambiguous recovery account identity")
     return matches[0]["account"] if len(matches) == 1 else None
 
 
@@ -132,8 +139,15 @@ def _account_identity(g, event, service_id, identifier, evidence_id, order, *, t
             *candidate["account"].get("previous_identifiers", []),
         }:
             candidates = []
-    if not candidates and not login_change:
-        recovery = _recovery_account(rows, identifier)
+    inbox_role = candidates[0].get("inbox_role") if observed else None
+    if inbox_role not in {None, "login_email", "recovery_email"}:
+        raise ValueError(f"Invalid evidence inbox attribution for service {service_id}")
+    if inbox_role == "recovery_email" or (not login_change and inbox_role is None):
+        recovery = (
+            candidates[0]["account"]
+            if inbox_role == "recovery_email"
+            else _recovery_account(candidates or rows, identifier)
+        )
         if recovery is not None:
             return {
                 "id": recovery["id"],
@@ -264,6 +278,7 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
             "snippet": safe_text(event.snippet, context=event.subject)[:300],
             "event": event.event.value,
             "observed_order": order,
+            "inbox_role": "recovery_email" if via_recovery else "login_email",
         }
         db.run(
             g,
