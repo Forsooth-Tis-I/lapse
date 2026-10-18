@@ -34,6 +34,11 @@ import { LockoutSummary } from "./components/LockoutSummary";
 
 type Page = "graph" | "plan" | "agent" | "connect";
 type Mode = "takeover" | "lockout";
+type Selection = { target: string | null; mode: Mode };
+type Assessment = Selection & {
+  graph: GraphData;
+  status: "pending" | "success" | "error";
+};
 const navigation = [
   { id: "graph", label: "Account map", icon: GitBranch },
   { id: "plan", label: "Fix plan", icon: CheckCheck },
@@ -74,6 +79,22 @@ function rootScenarios(roots: Root[]) {
   ).map((root) => ({kind: root.kind === "phone" ? "takeover" as const : "lockout" as const, root_ids: [root.id]}));
 }
 
+export function reconcileSelection(
+  roots: Root[],
+  previous: Selection,
+  linked?: ScenarioResult | null,
+): Selection {
+  if (linked && roots.some((root) => root.id === linked.root_ids[0]))
+    return { target: linked.root_ids[0], mode: linked.kind };
+  if (roots.some((root) => root.id === previous.target)) return previous;
+  const first = rootScenarios(roots)[0];
+  const root = roots[0];
+  return {
+    target: first?.root_ids[0] ?? root?.id ?? null,
+    mode: first?.kind ?? (root?.kind === "phone" ? "takeover" : "lockout"),
+  };
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>(() =>
     ["/onboarding", "/connect"].includes(window.location.pathname)
@@ -87,8 +108,13 @@ export default function App() {
       return true;
     }
   });
-  const [mode, setMode] = useState<Mode>("takeover");
-  const [target, setTarget] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>({
+    mode: "takeover",
+    target: null,
+  });
+  const { mode, target } = selection;
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
+  const linkedSelectionApplied = useRef(false);
   const [depth, setDepth] = useState<"direct" | "full">("direct");
   const [keystones, setKeystones] = useState<Keystone[]>([]);
   const [graph, setGraph] = useState<GraphData | null>(null);
@@ -112,9 +138,20 @@ export default function App() {
   const [explaining, setExplaining] = useState(false);
   const [route, setRoute] = useState<Route | null>(null);
   const [creating, setCreating] = useState(false);
-  const results = scenarios.filter(
-    (result) => result.kind === mode && result.root_ids[0] === target,
-  );
+  const scenarioStatus =
+    !graph || !target
+      ? "unassessed"
+      : assessment?.graph === graph &&
+          assessment.target === target &&
+          assessment.mode === mode
+        ? assessment.status
+        : "pending";
+  const results =
+    scenarioStatus === "success"
+      ? scenarios.filter(
+          (result) => result.kind === mode && result.root_ids[0] === target,
+        )
+      : [];
   const directCount = new Set(
     results.flatMap((result) => result.direct_accounts),
   ).size;
@@ -149,6 +186,7 @@ export default function App() {
     if (revision !== graphRevision.current) return;
     setGraph(nextGraph);
     setRoots(nextRoots);
+    setSelection((previous) => reconcileSelection(nextRoots, previous));
   }, []);
 
   useEffect(() => {
@@ -174,15 +212,13 @@ export default function App() {
         ]);
         if (!active || revision !== graphRevision.current) return;
         const linkedId = new URLSearchParams(window.location.search).get("scenario");
-        const linked = linkedId ? await api.getScenario(linkedId).catch(() => null) : null;
+        const linked = linkedId && !linkedSelectionApplied.current
+          ? await api.getScenario(linkedId).catch(() => null)
+          : null;
         if (!active || revision !== graphRevision.current) return;
-        const first = linked ?? rootScenarios(nextRoots)[0];
-        setTarget((previous) => {
-          if (!linked && previous && nextRoots.some((root) => root.id === previous)) return previous;
-          if (first) setMode(first.kind);
-          return first?.root_ids[0] ?? nextRoots[0]?.id ?? null;
-        });
-        if (linked) setDepth("full");
+        setSelection((previous) => reconcileSelection(nextRoots, previous, linked));
+        if (linked && nextRoots.some((root) => root.id === linked.root_ids[0])) setDepth("full");
+        linkedSelectionApplied.current = true;
         setGraph(nextGraph);
         setRoots(nextRoots);
         setScreen(nextScreen);
@@ -282,13 +318,18 @@ export default function App() {
   useEffect(() => {
     if (!graph || !target) return;
     let active = true;
+    const current = { graph, target, mode };
+    setAssessment({ ...current, status: "pending" });
     api
       .createScenario({ kind: mode, root_ids: [target] })
       .then((result) => {
-        if (active) setScenarios([result]);
+        if (active) {
+          setScenarios([result]);
+          setAssessment({ ...current, status: "success" });
+        }
       })
       .catch(() => {
-        if (active) setError("Could not run this scenario. Please try again.");
+        if (active) setAssessment({ ...current, status: "error" });
       });
     return () => {
       active = false;
@@ -378,7 +419,7 @@ export default function App() {
         : targetRoot.label
     : "a number or inbox";
   function chooseTarget(id: string | null) {
-    setTarget(id);
+    setSelection((previous) => ({ ...previous, target: id }));
     setSelected(null);
   }
   const college = roots.find((root) => root.kind === "email" && ["closing", "closed"].includes(root.status));
@@ -498,18 +539,26 @@ export default function App() {
               <div className="summary-strip">
                 <div className="reach-summary">
                   <span className="eyebrow">ACCOUNTS AT RISK</span>
-                  <div className="reach-numbers" aria-label={`${directCount} direct, ${fullCount} full chain`}>
-                    <strong>{directCount}</strong>
-                    <span>direct</span>
-                    <ArrowRight size={22} />
-                    <strong className="full-count">{fullCount}</strong>
-                    <span>full chain</span>
-                  </div>
+                  {scenarioStatus === "success" ? (
+                    <div className="reach-numbers" aria-label={`${directCount} direct, ${fullCount} full chain`}>
+                      <strong>{directCount}</strong>
+                      <span>direct</span>
+                      <ArrowRight size={22} />
+                      <strong className="full-count">{fullCount}</strong>
+                      <span>full chain</span>
+                    </div>
+                  ) : (
+                    <p role="status">
+                      {scenarioStatus === "pending" ? "Checking risk…"
+                        : scenarioStatus === "error" ? "Risk check unavailable"
+                        : "Choose a number or inbox to assess risk."}
+                    </p>
+                  )}
                 </div>
                 <div className="unknown-summary">
                   <CircleHelp size={18} />
                   <div>
-                    <strong>{unknownCount} unknown</strong>
+                    <strong>{scenarioStatus === "success" ? unknownCount : "—"} unknown</strong>
                     <span>Not modelled. Not safe.</span>
                   </div>
                 </div>
@@ -569,7 +618,7 @@ export default function App() {
                           key={option.id}
                           aria-pressed={mode === option.id}
                           onClick={() => {
-                            setMode(option.id);
+                            setSelection((previous) => ({ ...previous, mode: option.id }));
                             setSelected(null);
                           }}
                         >
@@ -597,6 +646,14 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  {scenarioStatus === "error" && (
+                    <div className="notice" role="alert">
+                      Could not run this scenario. No risk conclusion is available.
+                      <button className="secondary-button" onClick={() => setReload((value) => value + 1)}>
+                        Retry
+                      </button>
+                    </div>
+                  )}
                   {topKeystone && (
                     <p className="keystone-line">
                       <span className="keystone-dot" aria-hidden="true" />
@@ -615,7 +672,7 @@ export default function App() {
                       explanation={explanation}
                       onSelect={setSelected}
                       onSelectRoot={chooseTarget}
-                      fixedAccountIds={plans
+                      fixedAccountIds={scenarioStatus !== "success" ? [] : plans
                         .filter(
                           (plan) => plan.kind === mode && plan.old_root === target,
                         )

@@ -76,7 +76,7 @@ export function ExplanationPanel({
       ) : (
         <div className="explanation-content">
           <span
-            className={`risk-label ${unknown ? "unknown" : affected?.kind || "safe"}`}
+            className={`risk-label ${unknown ? "unknown" : affected?.kind || (results.length ? "safe" : "")}`}
           >
             {unknown
               ? "Unknown, not safe"
@@ -84,11 +84,13 @@ export function ExplanationPanel({
                 ? "Stranger can reach"
                 : affected?.kind === "lockout"
                   ? "You would lose access"
-                  : "Not affected in this scenario"}
+                  : results.length ? "Not affected in this scenario" : "Not assessed yet"}
           </span>
           <h2>{node.label}</h2>
           {unknown ? (
             <p><strong>Not in the graph of modelled methods.</strong> We found this account, but its recovery methods are not modelled. Confirm its settings yourself. Unknown, not safe.</p>
+          ) : !results.length ? (
+            <p>A successful risk check is needed before assessing this account.</p>
           ) : loading ? (
             <p role="status">Reading the derivation…</p>
           ) : error ? (

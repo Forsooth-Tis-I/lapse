@@ -410,6 +410,7 @@ export function AccountGraph({
             results.find((r) => r.root_ids.includes(node.id))?.kind || "safe",
           );
         else if (
+          results.length > 0 &&
           !item &&
           (node.node_type === "Account" || visited.has(node.id))
         )
@@ -463,14 +464,16 @@ export function AccountGraph({
       />
       <div className="graph-corner">
         <span className="mono">
-          {depth === "direct" ? "DEPTH 1" : `ROUND ${round} / ${maxRound}`}
+          {!results.length ? "UNASSESSED" : depth === "direct" ? "DEPTH 1" : `ROUND ${round} / ${maxRound}`}
         </span>
         <span>
-          {depth === "direct"
-            ? "The connections you can see."
-            : round < maxRound
-              ? "Following the next connection…"
-              : "The complete chain, under modelled methods."}
+          {!results.length
+            ? "No current risk assessment."
+            : depth === "direct"
+              ? "The connections you can see."
+              : round < maxRound
+                ? "Following the next connection…"
+                : "The complete chain, under modelled methods."}
         </span>
       </div>
       <div className="graph-tools">
