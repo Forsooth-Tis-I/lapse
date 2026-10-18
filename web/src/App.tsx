@@ -80,7 +80,13 @@ export default function App() {
       ? "connect"
       : "graph",
   );
-  const [light, setLight] = useState(false);
+  const [light, setLight] = useState(() => {
+    try {
+      return window.localStorage.getItem("lapse-theme") !== "dark";
+    } catch {
+      return true;
+    }
+  });
   const [mode, setMode] = useState<Mode>("takeover");
   const [target, setTarget] = useState<string | null>(null);
   const [depth, setDepth] = useState<"direct" | "full">("direct");
@@ -291,6 +297,11 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = light ? "light" : "dark";
+    try {
+      window.localStorage.setItem("lapse-theme", light ? "light" : "dark");
+    } catch {
+      // storage unavailable; theme still applies for this session
+    }
   }, [light]);
   useEffect(() => {
     setExplanation(null);

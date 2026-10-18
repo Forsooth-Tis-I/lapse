@@ -8,7 +8,17 @@ import { useReducedMotion } from "../useReducedMotion";
 
 cytoscape.use(dagre);
 
-const graphStyle: StylesheetJson = [
+function themeColor(name: string, fallback = "#888888"): string {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return value || fallback;
+}
+
+function buildGraphStyle(): StylesheetJson {
+  const v = (name: string) => themeColor(name);
+  return [
   {
     selector: "node",
     style: {
@@ -16,15 +26,15 @@ const graphStyle: StylesheetJson = [
       width: 190,
       height: 50,
       label: "data(display)",
-      color: "#dddeda",
+      color: v("--g-text"),
       "font-family": "DM Sans",
       "font-size": 13,
       "line-height": 1.25,
       "font-weight": 500,
       "text-valign": "center",
       "text-halign": "center",
-      "background-color": "#242c28",
-      "border-color": "#58665c",
+      "background-color": v("--g-node-bg"),
+      "border-color": v("--g-node-border"),
       "border-width": 1.2,
       "text-wrap": "wrap",
       "text-max-width": "176px",
@@ -35,33 +45,33 @@ const graphStyle: StylesheetJson = [
     selector: "node.root",
     style: {
       shape: "round-rectangle",
-      "background-color": "#33392e",
-      "border-color": "#b0b99a",
+      "background-color": v("--g-root-bg"),
+      "border-color": v("--g-root-border"),
       "border-width": 1.6,
     },
   },
   {
     selector: "node.safe",
     style: {
-      "background-color": "#23372e",
-      "border-color": "#6eac8a",
-      color: "#c8e4cf",
+      "background-color": v("--g-safe-bg"),
+      "border-color": v("--g-safe-border"),
+      color: v("--g-safe-text"),
     },
   },
   {
     selector: "node.takeover",
     style: {
-      "background-color": "#442b29",
-      "border-color": "#dc8a7b",
-      color: "#ffcec4",
+      "background-color": v("--g-take-bg"),
+      "border-color": v("--g-take-border"),
+      color: v("--g-take-text"),
     },
   },
   {
     selector: "node.lockout",
     style: {
-      "background-color": "#423921",
-      "border-color": "#d7b669",
-      color: "#f2dfad",
+      "background-color": v("--g-lock-bg"),
+      "border-color": v("--g-lock-border"),
+      color: v("--g-lock-text"),
     },
   },
   {
@@ -70,8 +80,8 @@ const graphStyle: StylesheetJson = [
       "background-opacity": 0,
       "border-style": "dashed",
       "border-width": 2,
-      "border-color": "#b3b3ab",
-      color: "#c6c7bf",
+      "border-color": v("--g-unknown"),
+      color: v("--g-unknown"),
     },
   },
   { selector: "node.unrevealed", style: { opacity: 0.22 } },
@@ -79,8 +89,8 @@ const graphStyle: StylesheetJson = [
     selector: "edge",
     style: {
       width: 1.2,
-      "line-color": "#526258",
-      "target-arrow-color": "#526258",
+      "line-color": v("--g-edge"),
+      "target-arrow-color": v("--g-edge"),
       "target-arrow-shape": "triangle",
       "arrow-scale": 0.7,
       "curve-style": "bezier",
@@ -88,8 +98,8 @@ const graphStyle: StylesheetJson = [
       opacity: 0.55,
       label: "",
       "font-size": 9,
-      color: "#c5c8bc",
-      "text-background-color": "#1b221e",
+      color: v("--g-text"),
+      "text-background-color": v("--g-label-bg"),
       "text-background-opacity": 1,
       "text-background-padding": "3px",
       "text-rotation": "autorotate",
@@ -99,15 +109,15 @@ const graphStyle: StylesheetJson = [
     selector: "edge.unconfirmed",
     style: {
       "line-style": "dashed",
-      "line-color": "#80877e",
-      "target-arrow-color": "#80877e",
+      "line-color": v("--g-edge-unconfirmed"),
+      "target-arrow-color": v("--g-edge-unconfirmed"),
     },
   },
   {
     selector: "edge.takeover",
     style: {
-      "line-color": "#bc776c",
-      "target-arrow-color": "#bc776c",
+      "line-color": v("--g-edge-take"),
+      "target-arrow-color": v("--g-edge-take"),
       opacity: 0.78,
       width: 1.6,
     },
@@ -115,8 +125,8 @@ const graphStyle: StylesheetJson = [
   {
     selector: "edge.lockout",
     style: {
-      "line-color": "#ba9c57",
-      "target-arrow-color": "#ba9c57",
+      "line-color": v("--g-edge-lock"),
+      "target-arrow-color": v("--g-edge-lock"),
       opacity: 0.78,
       width: 1.6,
     },
@@ -126,17 +136,17 @@ const graphStyle: StylesheetJson = [
   { selector: ".idle", style: { opacity: 0.38 } },
   {
     selector: "node.seed",
-    style: { "border-width": 4, "border-style": "double", "border-color": "#f5a524" },
+    style: { "border-width": 4, "border-style": "double", "border-color": v("--g-seed") },
   },
   {
     selector: "node.highlighted",
-    style: { "border-width": 3, "border-color": "#ece9ce", opacity: 1 },
+    style: { "border-width": 3, "border-color": v("--g-highlight"), opacity: 1 },
   },
   {
     selector: "edge.highlighted",
     style: {
-      "line-color": "#dcd7b1",
-      "target-arrow-color": "#dcd7b1",
+      "line-color": v("--g-highlight"),
+      "target-arrow-color": v("--g-highlight"),
       width: 2.4,
       opacity: 1,
       label: "data(label)",
@@ -147,14 +157,15 @@ const graphStyle: StylesheetJson = [
     style: {
       "border-width": 3,
       "border-style": "double",
-      "border-color": "#e3c46b",
+      "border-color": v("--g-keystone"),
     },
   },
   {
     selector: "node:selected",
-    style: { "border-width": 3, "border-color": "#f0eccb" },
+    style: { "border-width": 3, "border-color": v("--g-highlight") },
   },
-];
+  ];
+}
 
 const MAX_LINE = 24;
 
@@ -288,7 +299,7 @@ export function AccountGraph({
             classes: edge.confirmed ? "" : "unconfirmed",
           })),
       ],
-      style: graphStyle,
+      style: buildGraphStyle(),
       minZoom: 0.3,
       maxZoom: 2.5,
       userPanningEnabled: true,
@@ -350,8 +361,16 @@ export function AccountGraph({
       cy.fit(undefined, 38);
     });
     resize.observe(container.current);
+    const themeWatch = new MutationObserver(() => {
+      cy.style(buildGraphStyle());
+    });
+    themeWatch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     instance.current = cy;
     return () => {
+      themeWatch.disconnect();
       resize.disconnect();
       cy.destroy();
       instance.current = null;
