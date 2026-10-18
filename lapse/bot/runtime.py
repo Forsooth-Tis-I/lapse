@@ -422,6 +422,14 @@ class BotRuntime:
                     "Which one should I switch to: "
                     + cards.join_names(cards.root_name(r) for r in options)
                     + "?",
+                    [
+                        {
+                            "label": f"Switch to {cards.root_name(option)}",
+                            "action": "plan_root",
+                            "payload": {"root_id": root.id, "new_root_id": option.id},
+                        }
+                        for option in options
+                    ],
                     edit=query.message,
                 )
                 return

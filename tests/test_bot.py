@@ -420,6 +420,30 @@ async def test_plan_callback_card_and_approval_excludes_tier_four(harness, monke
     assert records == [{"action": "approve_changes", "payload": {"change_ids": ["c1", "c2", "c3"]}}]
 
 
+async def test_plan_with_two_replacements_offers_a_button_for_each(harness, monkeypatch):
+    from lapse.bot.runtime import planner, views
+
+    h = harness
+    monkeypatch.setattr(
+        views,
+        "list_roots",
+        lambda uid: [
+            Root(id="college", kind="email", label="College", address="c@example.edu", status="closing"),
+            Root(id="primary", kind="email", label="Primary", address="p@example.com"),
+            Root(id="outlook", kind="email", label="Outlook", address="o@example.org"),
+        ],
+    )
+    plan_for_root = Mock()
+    monkeypatch.setattr(planner, "plan_for_root", plan_for_root)
+    await press(h, "plan_root", {"root_id": "college"})
+    plan_for_root.assert_not_called()
+    records = [json.loads(value) for value in h.runtime.redis.values.values()]
+    assert [record["payload"] for record in records] == [
+        {"root_id": "college", "new_root_id": "primary"},
+        {"root_id": "college", "new_root_id": "outlook"},
+    ]
+
+
 @pytest.mark.parametrize("value", [True, False])
 async def test_confirm_use_callback(harness, monkeypatch, value):
     confirm = Mock()
