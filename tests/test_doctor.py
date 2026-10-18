@@ -20,16 +20,20 @@ def test_mask_does_not_reveal_even_short_secrets():
 
 
 def test_env_quoting_comments_empty_values_and_duplicate_keys():
-    text = '''# comment
+    text = """# comment
 export TOKEN="hello # world"
 EMPTY=
 BARE
 NAME=first
 NAME='second value' # comment
 MODEL=some-model # comment
-'''
+"""
     assert parse_env(text) == {
-        "TOKEN": "hello # world", "EMPTY": "", "BARE": "", "NAME": "second value", "MODEL": "some-model",
+        "TOKEN": "hello # world",
+        "EMPTY": "",
+        "BARE": "",
+        "NAME": "second value",
+        "MODEL": "some-model",
     }
 
 

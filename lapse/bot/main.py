@@ -17,7 +17,7 @@ from lapse.config import settings
 @dataclass(frozen=True)
 class BotConfig:
     token: str = field(repr=False)
-    web_url: str = "http://localhost:5173"
+    web_url: str = "http://localhost:8080"
     default_uid: str | None = None
 
     @classmethod
@@ -25,7 +25,7 @@ class BotConfig:
         token = settings().telegram_bot_token.strip()
         if not token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required to run the Telegram bot.")
-        web_url = os.environ.get("WEB_URL", "http://localhost:5173").rstrip("/")
+        web_url = os.environ.get("WEB_URL", "http://localhost:8080").rstrip("/")
         parsed = urlsplit(web_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
             raise ValueError("WEB_URL must be an HTTP(S) base URL without a query or fragment.")

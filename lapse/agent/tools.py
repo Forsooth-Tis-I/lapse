@@ -309,6 +309,31 @@ def explain(uid, account_id, scenario_id, *, trace=None):
 
 
 @register(
+    "keystones",
+    "What to fix first: the accounts or mailboxes that the most single-factor chains pass through "
+    "(betweenness centrality), with the accounts reachable downstream of each.",
+    limit=(int, 3),
+)
+def keystones(uid, limit=3, *, trace=None):
+    return graph_call("algorithms", "keystones", uid, max(1, min(limit, 10)), trace=trace)
+
+
+@register(
+    "path_between",
+    "How a root or account connects to another account: the shortest single-factor route (algo.SPpaths). "
+    "No route does not mean safe; AND methods need explain.",
+    "path",
+    from_id=(str, ...),
+    to_id=(str, ...),
+)
+def path_between(uid, from_id, to_id, *, trace=None):
+    try:
+        return graph_call("algorithms", "shortest_path", uid, from_id, to_id, trace=trace)
+    except KeyError:
+        return failure("not_in_graph", "That root or account is not in the graph; unknown, not safe.")
+
+
+@register(
     "account_info",
     "Read an account's methods, uses and evidence.",
     ids={"account_id": "Account"},

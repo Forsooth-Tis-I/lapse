@@ -18,6 +18,7 @@ export function Onboarding({
   onConnected: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [emailCount, setEmailCount] = useState(1);
   const [error, setError] = useState("");
   const [link, setLink] = useState<{
@@ -348,22 +349,45 @@ export function Onboarding({
               </div>
             </div>
           </section>
-          {link && (
-            <section className="info-card">
-              <span className="eyebrow">TAKE LAPSE WITH YOU</span>
-              <h2>Link Telegram</h2>
-              <p>Use this code to pair your conversation.</p>
-              <code className="link-code">{link.telegram_code}</code>
-              <a
-                className="text-link"
-                href={link.telegram_url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open Telegram <ArrowUpRight size={15} />
-              </a>
-            </section>
-          )}
+          <section className="info-card">
+            <span className="eyebrow">TAKE LAPSE WITH YOU</span>
+            <h2>Link Telegram</h2>
+            {link ? (
+              <>
+                <p>
+                  Send <code>/start {link.telegram_code}</code> to the bot, or
+                  open the link. The code works once, for one hour.
+                </p>
+                <code className="link-code">{link.telegram_code}</code>
+                <a
+                  className="text-link"
+                  href={link.telegram_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Telegram <ArrowUpRight size={15} />
+                </a>
+              </>
+            ) : (
+              <p>Pair the Telegram bot with this account.</p>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={linking}
+              onClick={() => {
+                setLinking(true);
+                setError("");
+                api
+                  .linkTelegram()
+                  .then(setLink)
+                  .catch(() => setError("Could not create a link code. Try again."))
+                  .finally(() => setLinking(false));
+              }}
+            >
+              {link ? "New link code" : "Get link code"}
+            </button>
+          </section>
         </div>
       </div>
     </section>

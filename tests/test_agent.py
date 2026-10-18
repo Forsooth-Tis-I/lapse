@@ -131,6 +131,8 @@ def world(monkeypatch):
             }
         if name == "account_info":
             return {"account": {"id": "dropbox", "display": "Dropbox"}}
+        if name == "path_between":
+            return {"outcome": "route", "hops": 1, "route": [state.root, {"id": "gmail", "label": "Gmail"}]}
         raise AssertionError(f"Unexpected tool: {name}")
 
     def mint(uid, changes):
@@ -748,3 +750,179 @@ async def test_web_reply_has_plain_text_and_telegram_has_bold_names(offline):
     telegram = await agent.respond("alice", "risk of my old number")
     assert "Gmail" in web["text"] and "<b>" not in web["text"]
     assert "<b>Gmail</b>" in telegram["text"]
+
+
+async def test_small_talk_reply_without_tools(offline):
+    offline.llm = FakeLLM(message("Hey! Happy to help you stay on top of things."))
+    reply = await agent.respond("alice", "hey whats up")
+    assert reply["text"].startswith("Hey! Happy to help")
+    assert "what should I fix first" in reply["text"]
+    assert reply["diagnostics"]["fallback_used"] is False
+    assert reply["tool_calls"] == ["list_entities"]
+
+
+@pytest.mark.parametrize(
+    "prose",
+    ["Your Gmail is safe.", "You have 3 accounts at risk.", "All good with ••4321!", "<b>hi</b>"],
+)
+async def test_small_talk_cannot_state_graph_facts(offline, prose):
+    offline.llm = FakeLLM(message(prose), message(prose))
+    reply = await agent.respond("alice", "hey")
+    assert reply["diagnostics"]["fallback_used"] is True
+    assert prose not in reply["text"]
+    assert [request["tool_choice"] for request in offline.llm.requests] == ["auto", "required"]
+
+
+async def test_prose_instead_of_tool_retries_with_required_tool(offline):
+    offline.llm = FakeLLM(
+        message("Someone could get into Gmail."),
+        message(calls=[("takeover_if_reassigned", {"root_id": "phone-old"})]),
+    )
+    reply = await agent.respond("alice", "what happens if someone gets my old number?")
+    assert reply["diagnostics"]["fallback_used"] is False
+    assert reply["tool_calls"] == ["list_entities", "takeover_if_reassigned"]
+    assert "get into your <b>Gmail</b>" in reply["text"]
+
+
+def test_small_talk_allows_capability_answers():
+    catalog = {"roots": [{"id": "phone-old", "label": "••4321"}], "accounts": [{"id": "a", "label": "Gmail"}]}
+    assert guard.small_talk("Happy to help! Ask about your accounts whenever.", catalog)
+    assert guard.small_talk("Try asking what to fix first for your old number.", catalog)
+    assert guard.small_talk("Your Gmail looks good.", catalog) is None
+    assert guard.small_talk("Everything is fine.", catalog) is None
+
+
+async def test_help_question_gets_capability_answer_offline(offline):
+    offline.llm = FakeLLM(TimeoutError())
+    reply = await agent.respond("alice", "What can you do?")
+    assert "what to fix first" in reply["text"]
+    assert reply["tool_calls"] == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["what would i lose if lost the old number?", "what if I lose my old number", "lost old number"],
+)
+async def test_fallback_loss_phrasings_resolve_the_root(offline, question):
+    offline.llm = FakeLLM(TimeoutError())
+    await agent.respond("alice", question)
+    resolves = [call[2] for call in offline.calls if call[1] == "resolve"]
+    assert resolves and "if" not in resolves[0]["hint"].split()
+
+
+def test_small_talk_rejects_service_names_and_access_claims():
+    catalog = {"roots": [], "accounts": []}
+    assert guard.small_talk("Someone could get into Gmail.", catalog) is None
+    assert guard.small_talk("Hey! Your Notion looks good.", catalog) is None
+    assert guard.small_talk("Hey! Not much. How can I help?", catalog)
+
+
+async def test_fallback_route_question_uses_path_between(offline, monkeypatch):
+    offline.llm = FakeLLM(TimeoutError())
+    await agent.respond("alice", "how does my old number lead to gmail?")
+    names = [call[1] for call in offline.calls]
+    assert names == ["list_entities", "resolve", "resolve", "path_between"]
+
+
+async def test_help_question_skips_the_model(offline):
+    offline.llm = FakeLLM()
+    reply = await agent.respond("alice", "what can you do?")
+    assert "what to fix first" in reply["text"]
+    assert offline.llm.requests == []
+
+
+async def test_is_account_safe_checks_every_changing_root(offline):
+    offline.llm = FakeLLM(message(calls=[("account_info", {"account_id": "gmail"})]))
+    reply = await agent.respond("alice", "is gmail safe?")
+    assert reply["text"]
+
+
+@pytest.mark.parametrize(
+    "outcomes, affected, incomplete",
+    [
+        (["error", "error"], False, True),
+        (["ok", "error"], True, True),
+        (["ok", "error"], False, True),
+        (["malformed", "ok"], False, True),
+        (["wrong_root", "ok"], False, True),
+        (["ok", "ok"], False, False),
+    ],
+)
+async def test_account_risk_never_reassures_on_incomplete_checks(
+    world, monkeypatch, outcomes, affected, incomplete
+):
+    roots = [
+        {"id": "old", "kind": "phone", "label": "Old phone", "status": "retiring", "last4": "4321"},
+        {
+            "id": "college",
+            "kind": "email",
+            "label": "College",
+            "status": "closing",
+            "address": "demo@example.edu",
+        },
+    ]
+
+    def dispatch(uid, name, arguments):
+        if name == "list_roots":
+            return roots
+        outcome = outcomes[0 if arguments["root_id"] == "old" else 1]
+        if outcome == "error":
+            return {"outcome": "error", "message": "Unavailable. No safety conclusion can be drawn."}
+        if outcome == "malformed":
+            return {"affected_accounts": []}
+        kind = "takeover" if name == "takeover_if_reassigned" else "lockout"
+        return {
+            "id": arguments["root_id"],
+            "kind": kind,
+            "root_ids": ["other"] if outcome == "wrong_root" else [arguments["root_id"]],
+            "actor": "stranger" if kind == "takeover" else "user",
+            "rounds": 1,
+            "affected_accounts": [
+                {"node_id": "account", "label": "Canva", "node_type": "Account", "round": 1}
+            ]
+            if affected and kind == "takeover"
+            else [],
+            "direct_accounts": [],
+            "unknown_accounts": [],
+            "total_accounts": 1,
+            "ms": 0,
+        }
+
+    monkeypatch.setattr(agent, "dispatch", dispatch)
+    tools = agent.TurnTools(
+        uid="test",
+        turn_id="turn",
+        catalog={"roots": roots},
+        results=[{"account": {"id": "account", "display": "Canva", "modelled": True}, "methods": []}],
+    )
+    text = await tools.account_risk()
+    assert ("assessment is incomplete" in text) == incomplete
+    assert ("don't put" in text) == (not incomplete)
+    if affected:
+        assert "could get into" in text
+        assert tools.results[-1]["root_ids"] == ["old"]
+        assert "fix the confirmed risks" in text
+    if not incomplete:
+        assert "under the methods we model" in text
+
+
+@pytest.mark.parametrize(
+    "roots_response",
+    [
+        {"outcome": "error"},
+        [],
+        [{"id": "old", "kind": "invalid"}],
+    ],
+)
+async def test_account_risk_requires_valid_root_metadata(world, monkeypatch, roots_response):
+    monkeypatch.setattr(agent, "dispatch", lambda uid, name, args: roots_response)
+    tools = agent.TurnTools(
+        uid="test",
+        turn_id="turn",
+        catalog={"roots": [{"id": "old", "kind": "phone", "status": "retiring"}]},
+        results=[{"account": {"id": "account", "display": "Canva", "modelled": True}, "methods": []}],
+    )
+    text = await tools.account_risk()
+    assert "assessment is incomplete" in text
+    assert "don't put" not in text
+    assert tools.calls == ["list_roots"]

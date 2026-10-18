@@ -32,7 +32,8 @@ A question mark marks an optional property. Fields on later work-package records
 | `Change` | `id`, `plan_id`, `order`, `account_id`, `account_label`, `role`, `from_root`, `to_root?`, `tier`, `requires_old_root`, `due?`, `exposure_removed`, `status`, `settings_url?`, `note?`. |
 | `Action` | Planned `id`, `at`, `kind`, `result`, `detail`, `screenshot_url?`. No shared persistence model yet. |
 | `ToolCall` | `id`, `at`, `tool`, `args_json`, `query_name?`, `ms`, `rows`, `outcome`. `args_json` stores the JSON encoding of `ToolCallRecord.args`. |
-| `Turn` | Planned `id`, `at`, `role`, `text`. No shared model yet. |
+| `Turn` | `id`, `at`, `role`, `text`, `channel`, `context_json`. Written by the agent; no shared model yet. |
+| `PolicyEvent` | Per-user `id`, `notification_text?`, `notification_pending?` for policy-change notification delivery. Full event definitions live in the policy graph. |
 
 Account `display` is `<Service> · <identifier>` when an identifier exists, otherwise the service name. Views, plan titles, and explanation paths use this label to distinguish accounts of the same service.
 
@@ -66,7 +67,20 @@ Account `display` is `<Service> · <identifier>` when an identifier exists, othe
 | `(Turn)-[:ABOUT]->(Account or Root)` | Entities discussed in a turn. |
 | `(ToolCall)-[:IN]->(Turn)` | The turn that invoked the tool. |
 
-Persona YAML can declare dependencies that emails never reveal in `declared_uses`. Each entry names the `service`, an `account` email root, the dependency `role`, and the target `root`. After each ingest run, `onboarding.apply_declared_uses` matches the discovered service account by that email root's address. It writes the edge with `confirmed=true`, `confidence=1.0`, and `source='declared'`, then recompiles touched accounts. Undiscovered accounts are skipped until a later ingest run. Declarations do not create accounts.
+Persona YAML can declare dependencies that emails never reveal in `declared_uses`. Each entry names the `service`, an `account` email root, the dependency `role`, and the target `root`. After each ingest run, `onboarding.apply_declared_uses` resolves the service account by stable ID, current login email, or previous identifiers. It writes the edge against that resolved ID with `confirmed=true`, `confidence=1.0`, and `source='declared'`, then recompiles touched accounts. A stale declaration naming a migrated-away login is logged and skipped, as is an ambiguous match; reapplying the persona must not restore a retired dependency. A declaration also asserts that the account exists. If ingest has not discovered it, the account is created with the id ingest would give it (`account:<sha256(service, address)>`, `source='declared'`), so a later discovery merges instead of duplicating. A login email hosted by the same provider (an Outlook address for the Microsoft account) is not recorded as `login_email`, because a provider's own mailbox is not an external sign-in alias. To apply a persona file without a full ingest, run `uv run python -m lapse.onboarding --uid <uid> --path persona.local.yaml`.
+
+Example: a mailbox chain that a closing college address sits in the middle of:
+
+```yaml
+emails:
+  - {id: email_outlook, address: you@outlook.example, kind: personal, hosted_by: microsoft, status: active}
+declared_uses:
+  - {service: microsoft, account: email_outlook, role: recovery_email, root: email_college}
+  - {service: google,    account: email_college, role: recovery_email, root: email_outlook}
+  - {service: coursera,  account: email_outlook, role: login_email,    root: email_outlook}
+```
+
+With SMS 2-step on `phone_new` for the college account, this gives a 5-hop single-factor route (`phone_new` → college account → college inbox → Microsoft → Outlook inbox → Coursera) and an AND step (the college account resets through Outlook only together with `phone_new`).
 
 `USES.role` is `login_email`, `recovery_email`, `login_phone`, `recovery_phone`, `sms_2fa`, or `totp_device`. `NEEDS.as` carries the corresponding role for a compiled account method.
 
@@ -78,7 +92,7 @@ Persona YAML can declare dependencies that emails never reveal in `declared_uses
 | `MethodTemplate` | `id` = `<service_id>:<template_id>`, `template_id` = the service-local YAML ID, `service_id`, `kind`, `label`, `needs_roles`, `needs_password`, `doc_url?`. |
 | `ChangeProcedure` | `id` = `<service_id>:<root_kind>:<index>`, `service_id`, `root_kind`, `tier`, `requires`, `settings_url?`, `recipe?`, `confirmation_patterns`, `doc_url?`. |
 | `Carrier` | `id`, `name`, `country`, `reissue_after_days`, `source_url`. |
-| `PolicyEvent` | Planned `id`, `at`, `service_id`, `description`, `diff`. No shared model or foundation writer yet. |
+| `PolicyEvent` | `id`, `at`, `service_id`, `description`, `source_url`, `coverage_url`, `diff`. The policy-event processor writes the event; `diff` is JSON used during compilation. |
 
 `(Service)-[:HAS_METHOD]->(MethodTemplate)` and `(Service)-[:HAS_CHANGE]->(ChangeProcedure)` connect policy records. Carrier rules are independent nodes.
 

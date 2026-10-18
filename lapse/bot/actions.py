@@ -6,7 +6,7 @@ from lapse.graph import db
 
 def list_signals(uid: str, *, trace=None) -> list[Signal]:
     return [
-        Signal.model_validate(row["signal"])
+        Signal.model_validate({"root_id": None, **row["signal"]})
         for row in db.run(db.user_graph(uid), "bot_signals", trace=trace).rows
     ]
 

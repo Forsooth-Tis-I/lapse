@@ -61,7 +61,7 @@ def _save(uid: str, signal: Signal, *, scenario_id=None, trace=None) -> Signal:
     }
     db.run(g, "signals_detector_adopt", params, write=True, trace=trace)
     row = db.run(g, "signals_detector_merge", params, write=True, trace=trace).rows[0]
-    saved = Signal.model_validate(row["signal"])
+    saved = Signal.model_validate({"root_id": None, **row["signal"]})
     if not row["notified"] and saved.status == "open":
         _notify(uid, saved, scenario_id=scenario_id, trace=trace)
     return saved
@@ -93,7 +93,7 @@ def run_detectors(uid: str, *, now=None, trace=None, rdap_client=None) -> list[S
     now = _timestamp(now) if now is not None else datetime.now(UTC)
     g = db.user_graph(uid)
     for row in db.run(g, "signals_detector_pending", trace=trace).rows:
-        _save(uid, Signal.model_validate(row["signal"]), trace=trace)
+        _save(uid, Signal.model_validate({"root_id": None, **row["signal"]}), trace=trace)
     rows = db.run(g, "signals_detector_roots", trace=trace).rows
     signals = []
 

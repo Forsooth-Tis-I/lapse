@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from pydantic import ValidationError
 from lapse.contracts import Root
 from lapse.graph import db
 from lapse.policy.loader import default_policy_paths, load_policy_file
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_root(props: dict) -> Root:
@@ -94,26 +97,94 @@ def apply_declared_uses(uid: str, path="persona.local.yaml", *, trace=None) -> i
       declared_uses:
         - {service: google, account: email_primary, role: sms_2fa, root: phone_old}
     `account` names the email root the account signs in with. Edges are confirmed, source=declared.
-    Accounts not yet discovered are skipped; the next ingest run applies them.
+    A declared use asserts the account exists: if ingest has not discovered it, it is created with the
+    id ingest would give it, so a later discovery merges instead of duplicating.
     """
     from lapse.contracts import UseRole
+    from lapse.ingest.writer import _id
     from lapse.policy.compile import compile_user_graph
-    from lapse.policy.loader import default_policy_paths, load_policy_file
 
     persona = yaml.safe_load(Path(path).read_text()) or {}
     g = db.user_graph(uid)
+    policies = [policy for p in default_policy_paths() for policy in load_policy_file(p)[0]]
+    services = {policy.service.id: policy.service for policy in policies}
     touched: set[str] = set()
     for item in persona.get("declared_uses") or []:
         role = UseRole(item["role"])
+        service = services.get(item["service"])
+        if service is None:
+            raise ValueError(f"Declared use names an unknown service: {item['service']}")
+        address = next(
+            iter(db.run(g, "onboarding_root_address", {"root_id": item["account"]}, trace=trace).rows),
+            {},
+        ).get("address")
+        if not address:
+            raise ValueError(f"Declared use needs an email root as its account: {item['account']}")
+        identifier = address.strip().lower()
+        account_id = _id("account", service.id, identifier)
+        candidates = db.run(
+            g,
+            "onboarding_account_candidates",
+            {"service_id": service.id, "identifier": identifier, "account_id": account_id},
+            trace=trace,
+        ).rows
+        if len(candidates) > 1:
+            raise ValueError(f"Ambiguous declared account identity for service {service.id}")
+        if candidates:
+            candidate = candidates[0]
+            account = candidate["account"]
+            if identifier not in {account.get("identifier"), *candidate["emails"]}:
+                logger.warning(
+                    "Skipping stale declared use: service=%s account_root=%s role=%s root=%s",
+                    service.id,
+                    item["account"],
+                    role.value,
+                    item["root"],
+                )
+                continue
+            account_id = account["id"]
+        db.run(
+            g,
+            "onboarding_declared_account",
+            {
+                "service": service.model_dump(mode="json", exclude_none=True),
+                "login_root": item["account"],
+                "identifier": identifier,
+                "account_id": account_id,
+            },
+            write=True,
+            trace=trace,
+        )
         rows = db.run(
             g,
             "onboarding_declared_use",
-            {"service_id": item["service"], "account_root": item["account"], "role": role.value, "root_id": item["root"]},
+            {
+                "account_id": account_id,
+                "role": role.value,
+                "root_id": item["root"],
+            },
             write=True,
             trace=trace,
         ).rows
         touched.update(row["account_id"] for row in rows)
     if touched:
-        policies = [policy for p in default_policy_paths() for policy in load_policy_file(p)[0]]
         compile_user_graph(g, policies, account_ids=sorted(touched))
     return len(touched)
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Load a persona file and its declared uses into a user graph."
+    )
+    parser.add_argument("--uid", required=True)
+    parser.add_argument("--path", default="persona.local.yaml")
+    args = parser.parse_args()
+    counts = load_persona_local(args.uid, args.path)
+    counts["declared_accounts"] = apply_declared_uses(args.uid, args.path)
+    print(counts)
+
+
+if __name__ == "__main__":
+    main()
