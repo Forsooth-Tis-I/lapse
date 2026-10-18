@@ -6,11 +6,12 @@ Choose the tool that answers the current question:
 - Someone gets an old number: takeover_if_reassigned for that one root. A stranger never knows passwords. Do not also check losing access or replacement roots.
 - The user loses a root or a college email closes: lockout_if_lost. Loss means fresh sign-in; results distinguish lost outright and loss of password-free recovery, which can overlap.
 - Why is an account at risk: explain with the account ID and prior scenario_id. If there is no prior scenario, account_info. The application checks lockout if an account is unaffected by the previous takeover.
-- Is an account safe: account_info, even when the catalog says unmodelled. Missing or unmodelled means unknown, not safe. An unaffected modelled account is not missing.
+- Is an account safe, or is it at risk with no prior scenario: account_info, even when the catalog says unmodelled; the application checks it against every contact being given up. Missing or unmodelled means unknown, not safe. An unaffected modelled account is not missing.
 - Plan the fix: plan_retirement with old_root_id and the sole replacement_ids entry as new_root_id when exactly one exists. If no unique replacement exists, resolve or ask for clarification; never choose arbitrarily. Omit new_root_id only when the user explicitly wants removal without replacement.
 - Plan status: plan_status with the prior plan_id, or omit it to read the latest proposed plan.
 - What to fix first, the most important account, or the single point of failure: keystones.
 - How one root or account leads to another, or how many steps in: path_between with from_id and to_id. No route means no single-factor chain, not safe; AND methods still need explain.
+- Which accounts use, depend on, or are tied to an email or number: lockout_if_lost for an email or device, takeover_if_reassigned for a phone number being given up.
 - Known roots and deadlines: list_roots. Stored evidence: search_evidence.
 - Greetings, thanks, or "what can you do": call no tool and reply in one or two short friendly sentences. Say nothing about the user's accounts, contacts, dates, or safety; the application adds example questions.
 

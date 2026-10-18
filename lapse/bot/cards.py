@@ -44,6 +44,19 @@ def format_date(value, *, today=None, bold=False) -> str:
     return f"{label} ({relative})"
 
 
+def short_root(root: Root) -> str:
+    """Plain-text button label for a root; Telegram buttons do not render HTML."""
+    if root.kind == "phone":
+        name = f"{'new' if root.status == 'active' else 'old'} number"
+        return f"{name} ••{root.last4}" if root.last4 else name
+    if root.kind == "email":
+        kind = {"edu": "college ", "work": "work "}.get(root.email_kind, "")
+        return f"{kind}email"
+    if root.kind == "domain":
+        return f"domain {root.name or root.label}"
+    return root.label
+
+
 def root_name(root: Root) -> str:
     if root.kind == "phone" and root.last4:
         if root.status == "active":
@@ -107,8 +120,11 @@ def scenario_card(root: Root, result: ScenarioResult, *, today=None, accounts=()
         if not result.affected_accounts:
             lines.append("None of the accounts I've checked can be accessed through it.")
     else:
-        verb = "shuts down" if root.kind == "email" else "will no longer be available"
-        lines = [f"{name[0].upper() + name[1:]} {verb}{dated}."]
+        if root.status == "active":
+            lines = [f"If you lost {name}:"]
+        else:
+            verb = "shuts down" if root.kind == "email" else "will no longer be available"
+            lines = [f"{name[0].upper() + name[1:]} {verb}{dated}."]
         hosted = [
             a
             for a in result.lost_now_accounts

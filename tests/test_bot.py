@@ -281,6 +281,9 @@ async def test_risk_selects_kind_for_retiring_roots(harness, monkeypatch, scenar
     assert len(h.bot.sent) == 1
     assert "3 of your accounts" in last_text(h)
     assert "can&#x27;t promise" in last_text(h)
+    rows = h.bot.sent[0][0]["reply_markup"].inline_keyboard
+    assert [row[0].text for row in rows] == ["Fix old number", "Fix email"]
+    assert all(row[0].callback_data for row in rows)
 
 
 async def test_buttons_short_storage_bound_to_user_and_chat(harness):
@@ -307,32 +310,40 @@ async def test_buttons_short_storage_bound_to_user_and_chat(harness):
     assert "expired" in h.update.callback_query.edit_message_text.call_args.args[0]
 
 
-async def test_local_web_link_is_text_not_button(harness):
+async def test_localhost_web_link_becomes_loopback_button(harness):
     h = harness
     buttons = [
         {"label": "Fix it for me", "action": "plan_root", "payload": {"root_id": "r"}},
         {"label": "Show me", "action": "open_web", "payload": {"path": "/graph?scenario=s"}},
     ]
+    keyboard = await h.runtime.keyboard("u", 7, buttons)
+    fix, show = (row[0] for row in keyboard.inline_keyboard)
+    assert fix.callback_data
+    assert show.url == "http://127.0.0.1:8080/graph?scenario=s"
+
+
+async def test_unreachable_web_host_link_is_text(harness):
+    h = harness
+    h.runtime.web_url = "http://web:8080"
     sent = []
 
     async def send_message(**kwargs):
         sent.append(kwargs)
 
-    bot = SimpleNamespace(send_message=send_message)
-    await h.runtime.send(bot, "u", 7, "Reply", buttons)
+    buttons = [{"label": "Show me", "action": "open_web", "payload": {"path": "/graph"}}]
+    await h.runtime.send(SimpleNamespace(send_message=send_message), "u", 7, "Reply", buttons)
     (message,) = sent
-    assert message["text"].endswith("Show me: http://localhost:8080/graph?scenario=s")
-    (row,) = message["reply_markup"].inline_keyboard
-    assert row[0].text == "Fix it for me" and row[0].callback_data
+    assert message["text"].endswith("Show me: http://web:8080/graph")
+    assert message["reply_markup"] is None
 
 
 @pytest.mark.parametrize(
     ("url", "public"),
     [
-        ("http://localhost:8080", False),
-        ("http://127.0.0.1:8080", False),
-        ("http://192.168.1.5", False),
+        ("http://localhost:8080", True),
+        ("http://127.0.0.1:8080", True),
         ("http://web:8080", False),
+        ("http://lapse.local", False),
         ("https://lapse.example", True),
     ],
 )

@@ -165,3 +165,24 @@ def test_service_using_college_address_is_not_described_as_shutting_down():
     text = scenario_card(root, result)
     assert "You'd lose access to <b>Notion</b> (demo@example.edu)." in text
     assert "that comes with it goes too" not in text
+
+
+def test_lockout_of_kept_email_is_hypothetical():
+    root = Root(id="primary", kind="email", label="me@example.com", address="me@example.com")
+    result = ScenarioResult(
+        id="s",
+        kind="lockout",
+        root_ids=["primary"],
+        actor="user",
+        rounds=0,
+        affected_accounts=[],
+        lost_now_accounts=[],
+        recovery_lost_accounts=[],
+        direct_accounts=[],
+        unknown_accounts=[],
+        total_accounts=0,
+        ms=0,
+    )
+    text = scenario_card(root, result)
+    assert text.startswith("If you lost your email (me@example.com):")
+    assert "shuts down" not in text

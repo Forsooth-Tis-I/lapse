@@ -78,7 +78,8 @@ def grounded(text: str, results: list) -> bool:
 
 CLAIM_WORDS = re.compile(
     r"\b(?:safe|unsafe|secure|secured|risk|risky|exposed|protected|compromised|hacked|locked|"
-    r"affected|vulnerable|fine|okay|ok|password|passwords)\b",
+    r"affected|vulnerable|fine|okay|ok|password|passwords|access|lose|lost|reach|stranger|someone|"
+    r"attacker|get\s+into|take\s+over|takeover|depends?|tied)\b",
     re.IGNORECASE,
 )
 
@@ -88,6 +89,11 @@ def small_talk(text: str | None, catalog: dict) -> str | None:
     text = (text or "").strip()
     if not text or len(text) > 400 or re.search(r"\d|<|>|`", text) or CLAIM_WORDS.search(text):
         return None
+    # Service names are capitalised; only sentence starts, "I" and "Lapse" may be.
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        for word in re.findall(r"[A-Za-z][\w'’]*", sentence)[1:]:
+            if word[0].isupper() and word not in {"I", "I'm", "I’m", "I'll", "I’ll", "Lapse"}:
+                return None
     lowered = text.casefold()
     for item in [*catalog.get("roots", []), *catalog.get("accounts", [])]:
         for value in (item.get("id"), item.get("label"), item.get("service")):

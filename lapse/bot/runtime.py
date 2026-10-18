@@ -87,22 +87,32 @@ class BotRuntime:
             raise ValueError("Web button must use a local path")
         return self.web_url + path
 
+    def button_link(self, path: str) -> str:
+        """Telegram rejects the name "localhost" in URL buttons but accepts 127.0.0.1."""
+        parts = urlsplit(self.web_link(path))
+        if (parts.hostname or "").casefold() == "localhost":
+            netloc = "127.0.0.1" + (f":{parts.port}" if parts.port else "")
+            parts = parts._replace(netloc=netloc)
+        return parts.geturl()
+
     @property
     def web_is_public(self) -> bool:
-        """Telegram rejects URL buttons for localhost and other non-public hosts."""
+        """Whether Telegram will accept URL buttons for the configured web host."""
         host = (urlsplit(self.web_url).hostname or "").casefold()
+        if host == "localhost":
+            return True
         try:
-            address = ipaddress.ip_address(host)
+            ipaddress.ip_address(host)
         except ValueError:
             return "." in host and not host.endswith((".local", ".localhost", ".internal"))
-        return address.is_global
+        return True
 
     async def keyboard(self, uid: str, chat_id: int, buttons: list[dict]):
         rows = []
         for button in buttons:
             action, payload = button["action"], button["payload"]
             if action == "open_web":
-                link = self.web_link(payload["path"])
+                link = self.button_link(payload["path"])
                 if not self.web_is_public:
                     continue
                 item = InlineKeyboardButton(button["label"], url=link)
@@ -271,6 +281,14 @@ class BotRuntime:
             changing = [root for root in roots if root.status in {RootStatus.retiring, RootStatus.closing}]
             items = [(root, await self.root_risk(uid, root)) for root in changing]
             text = cards.risk_summary(items)
+            buttons = [
+                {
+                    "label": "Fix " + cards.short_root(root),
+                    "action": "plan_root",
+                    "payload": {"root_id": root.id},
+                }
+                for root, _ in items
+            ]
         await self.send(context.bot, uid, update.effective_chat.id, text, buttons)
 
     async def root_risk(self, uid, root):

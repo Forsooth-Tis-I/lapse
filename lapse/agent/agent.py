@@ -28,13 +28,16 @@ MAX_TOOL_STEPS = 6
 # Time the LLM gets to choose tools before the deterministic router answers. kimi-k2.7-code takes 2-7 s per call.
 LLM_BUDGET_SECONDS = float(os.environ.get("AGENT_LLM_BUDGET_SECONDS", "15"))
 SMALL_TALK_HINT = (
-    "Try asking: <i>what happens if someone gets my old number?</i>, "
-    "<i>what should I fix first?</i>, or <i>plan the fix for my college email</i>."
+    "Try asking: “what happens if someone gets my old number?”, "
+    "“what should I fix first?”, or “plan the fix for my college email”."
 )
 HELP_TEXT = (
     "I keep an eye on the numbers and emails you're giving up, and the accounts still tied to them. "
     "I can tell you who could get in if your old number goes to someone else, what you'd lose if an "
     "email closes, what to fix first, and plan the fixes for you to approve.\n\n" + SMALL_TALK_HINT
+)
+HELP = re.compile(
+    r"(?:/?help|what\s+(?:can|do)\s+you\s+do|how\s+does\s+(?:this|it|lapse)\s+work|who\s+are\s+you)"
 )
 SYSTEM = Path(__file__).with_name("prompts").joinpath("system.md").read_text()
 
@@ -72,7 +75,42 @@ class TurnTools:
         finally:
             self.guard_ms += (perf_counter() - started) * 1000
 
+    async def account_risk(self):
+        """Answer "is X safe" by checking the account against every contact being given up."""
+        last = self.results[-1] if self.results else None
+        if not (
+            isinstance(last, dict)
+            and "methods" in last
+            and isinstance(last.get("account"), dict)
+            and last["account"].get("modelled")
+        ):
+            return None
+        changing = [
+            root for root in self.catalog.get("roots", []) if root.get("status") in {"retiring", "closing"}
+        ]
+        if not changing or len(self.calls) + 1 + len(changing) > MAX_TOOL_STEPS:
+            return None
+        from lapse.bot.cards import account_risk_card
+        from lapse.contracts import Root, ScenarioResult
+
+        roots = await self.call("list_roots", {})
+        by_id = {root["id"]: Root.model_validate(root) for root in roots if isinstance(root, dict)}
+        items = []
+        for root in changing:
+            tool = "takeover_if_reassigned" if root["kind"] == "phone" else "lockout_if_lost"
+            result = await self.call(tool, {"root_id": root["id"]})
+            if isinstance(result, dict) and "affected_accounts" in result and root["id"] in by_id:
+                items.append((by_id[root["id"]], ScenarioResult.model_validate(result)))
+        account_id = last["account"]["id"]
+        affecting = [item for item in items if account_id in {a.node_id for a in item[1].affected_accounts}]
+        # Keep the scenario that reaches this account last, so buttons and follow-ups use it.
+        self.results = [r for r in self.results if not (isinstance(r, dict) and "affected_accounts" in r)]
+        self.results += [result.model_dump(mode="json") for _, result in affecting]
+        return account_risk_card(last["account"], items)
+
     async def answer(self):
+        if (text := await self.account_risk()) is not None:
+            return text
         full_result = next(
             (
                 result
@@ -162,6 +200,7 @@ def create_llm():
 
 
 async def model_answer(client, messages, tools, previous):
+    tool_choice = "auto"
     while len(tools.calls) < MAX_TOOL_STEPS:
         tools.llm_requests += 1
         started = perf_counter()
@@ -173,7 +212,7 @@ async def model_answer(client, messages, tools, previous):
                     messages=messages,
                     tools=tools.definitions,
                     parallel_tool_calls=False,
-                    tool_choice="auto",
+                    tool_choice=tool_choice,
                     max_tokens=256,
                 )
         finally:
@@ -184,6 +223,10 @@ async def model_answer(client, messages, tools, previous):
                 reply := guard.small_talk(message.content, tools.catalog)
             ):
                 return reply if "try" in reply.casefold() else reply + "\n\n" + SMALL_TALK_HINT
+            if tool_choice == "auto":
+                # Prior answers in the history tempt the model to write prose; insist on a tool once.
+                tool_choice = "required"
+                continue
             raise ValueError("No grounded tool selection")
         if len(message.tool_calls) > MAX_TOOL_STEPS - len(tools.calls):
             raise ValueError("Too many tool calls")
@@ -247,17 +290,29 @@ async def fallback(text, tools, previous):
         if plan_id:
             await tools.call("plan_status", {"plan_id": plan_id})
         return await tools.answer()
-    if re.fullmatch(
-        r"(?:/?help|what\s+can\s+you\s+do|how\s+does\s+(?:this|it|lapse)\s+work|who\s+are\s+you)", lower
-    ):
+    if HELP.fullmatch(lower):
         return HELP_TEXT
     if re.search(r"fix\s+first|most\s+important|single\s+point|keystone", lower):
         await tools.call("keystones", {})
         return await tools.answer()
-    why = re.search(r"why\s+is\s+(.+?)\s+at\s+risk", text, re.IGNORECASE)
-    loss = re.search(
-        r"(?:what\s+(?:happens\s+)?if\s+i\s+lose|(?:if\s+i\s+)?lose|lost)\s+(.+)", text, re.IGNORECASE
+    route = re.search(
+        r"(?:how\s+(?:does|do|is|can|could)\s+|path\s+from\s+|route\s+from\s+)(.+?)\s+"
+        r"(?:lead|leads|connect|connected|get|gets|reach|reaches|to)\s+(?:to\s+|into\s+)?(.+)",
+        lower,
     )
+    if route and len(tools.calls) <= MAX_TOOL_STEPS - 3:
+        ends = []
+        for hint in route.groups():
+            found = await tools.call("resolve", {"hint": hint.strip()})
+            candidates = found.get("candidates", [])
+            if len(candidates) != 1:
+                return await tools.answer()
+            ends.append(candidates[0]["id"])
+        await tools.call("path_between", {"from_id": ends[0], "to_id": ends[1]})
+        return await tools.answer()
+    why = re.search(r"why\s+is\s+(.+?)\s+at\s+risk", text, re.IGNORECASE)
+    # Skip "lose if ...", so "what would I lose if I lost X" resolves X.
+    loss = re.search(r"\b(?:lose|lost|losing)\s+(?:access\s+to\s+)?(?!if\b|when\b)(.+)", text, re.IGNORECASE)
     plan = re.search(r"(?:plan\s+(?:the\s+)?fix|fix|retire)(?:\s+for)?\s+(.+)", text, re.IGNORECASE)
     risk = re.search(r"(?:risk\s+(?:of|for)|show\s+(?:the\s+)?risk\s+(?:of|for))\s+(.+)", text, re.IGNORECASE)
     closing = re.search(r"what\s+do\s+i\s+lose\s+when\s+(.+?)\s+closes", text, re.IGNORECASE)
@@ -415,6 +470,8 @@ async def respond(uid: str, text: str, *, channel="telegram") -> AgentReply:
                 if approval_requested:
                     await tools.call("plan_status", {})
                     answer = tools.render(approval=True)
+                elif HELP.fullmatch(clean_text.casefold().strip().rstrip("?.!")):
+                    answer = HELP_TEXT
                 else:
                     client = create_llm()
                     if client is None:
