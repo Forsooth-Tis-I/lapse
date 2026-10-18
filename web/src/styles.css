@@ -582,6 +582,22 @@ main {
   flex-wrap: wrap;
   border-bottom: 1px solid var(--border);
 }
+.target-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.target-picker select {
+  background: var(--raised);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 12px;
+  max-width: 260px;
+}
 .scenario-control {
   display: flex;
   gap: 3px;

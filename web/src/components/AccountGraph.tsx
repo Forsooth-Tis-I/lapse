@@ -123,6 +123,11 @@ const graphStyle: StylesheetJson = [
   },
   { selector: "edge.unrevealed", style: { opacity: 0.1 } },
   { selector: ".dimmed", style: { opacity: 0.13 } },
+  { selector: ".idle", style: { opacity: 0.38 } },
+  {
+    selector: "node.seed",
+    style: { "border-width": 4, "border-style": "double", "border-color": "#f5a524" },
+  },
   {
     selector: "node.highlighted",
     style: { "border-width": 3, "border-color": "#ece9ce", opacity: 1 },
@@ -190,6 +195,7 @@ export function AccountGraph({
   selected,
   explanation,
   onSelect,
+  onSelectRoot,
   fixedAccountIds,
 }: {
   graph: GraphData;
@@ -199,12 +205,15 @@ export function AccountGraph({
   selected: string | null;
   explanation: Explanation | null;
   onSelect: (id: string) => void;
+  onSelectRoot?: (id: string) => void;
   fixedAccountIds: string[];
 }) {
   const container = useRef<HTMLDivElement>(null);
   const instance = useRef<Core | null>(null);
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
+  const selectRootRef = useRef(onSelectRoot);
+  selectRootRef.current = onSelectRoot;
   const reduced = useReducedMotion();
   const [round, setRound] = useState(1);
   const maxRound = Math.max(1, ...results.map((result) => result.rounds));
@@ -245,9 +254,8 @@ export function AccountGraph({
       )
     )
       relevantIds.add(edge.source);
-  for (const node of graph.nodes)
-    if (node.root?.kind === "phone" || node.root?.kind === "device")
-      relevantIds.add(node.id);
+  // The whole graph stays on screen; the scenario only colours what it reaches.
+  for (const node of graph.nodes) relevantIds.add(node.id);
   const membershipKey = [...relevantIds].sort().join(":");
 
   useEffect(() => {
@@ -333,13 +341,9 @@ export function AccountGraph({
     }
     cy.fit(undefined, 32);
     cy.on("tap", "node", (event) => {
-      if (
-        graph.nodes.some(
-          (node) =>
-            node.id === event.target.id() && node.node_type === "Account",
-        )
-      )
-        selectRef.current(event.target.id());
+      const node = graph.nodes.find((item) => item.id === event.target.id());
+      if (node?.node_type === "Account") selectRef.current(node.id);
+      else if (node?.node_type === "Root") selectRootRef.current?.(node.id);
     });
     const resize = new ResizeObserver(() => {
       cy.resize();
@@ -373,7 +377,7 @@ export function AccountGraph({
     };
     cy.batch(() => {
       cy.elements().removeClass(
-        "safe takeover lockout unknown unrevealed dimmed highlighted keystone",
+        "safe takeover lockout unknown unrevealed dimmed highlighted keystone idle seed",
       );
       for (const id of keystoneIds) cy.getElementById(id).addClass("keystone");
       for (const node of graph.nodes) {
@@ -392,6 +396,9 @@ export function AccountGraph({
         )
           element.addClass("safe");
         if (item && !visible(node.id)) element.addClass("unrevealed");
+        if (seeds.has(node.id)) element.addClass("seed");
+        else if (results.length && !item && node.node_type !== "Account")
+          element.addClass("idle");
       }
       for (const edge of graph.edges) {
         const element = cy.getElementById(edge.id);
@@ -400,6 +407,7 @@ export function AccountGraph({
           element.addClass("unrevealed");
         else if (target && (reached.has(edge.source) || seeds.has(edge.source)))
           element.addClass(target.kind);
+        else if (results.length) element.addClass("idle");
       }
       if (selected) {
         cy.elements().addClass("dimmed");

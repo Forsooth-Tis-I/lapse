@@ -81,3 +81,20 @@ it("offers only the latest plan for each root, avoiding duplicate bulk approvals
   const older = {...plan, created_at: "2026-10-17T10:00:00Z"};
   expect(currentPlans([latest, older])).toEqual([latest]);
 });
+
+it("runs a scenario for whichever number or inbox is picked", async () => {
+  await act(async () => {
+    render(<App />);
+  });
+  await act(async () => {
+    fireEvent.change(screen.getByRole("combobox", { name: "What if" }), {
+      target: { value: "phone_new" },
+    });
+  });
+  fireEvent.click(screen.getByRole("button", { name: "I lose it" }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^If you lose your number/);
+  expect(screen.getByRole("button", { name: "I lose it" })).toHaveAttribute("aria-pressed", "true");
+});

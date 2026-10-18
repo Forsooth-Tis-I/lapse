@@ -33,18 +33,17 @@ import { Onboarding } from "./components/Onboarding";
 import { LockoutSummary } from "./components/LockoutSummary";
 
 type Page = "graph" | "plan" | "agent" | "connect";
-type Preset = "takeover" | "lockout" | "both";
+type Mode = "takeover" | "lockout";
 const navigation = [
   { id: "graph", label: "Account map", icon: GitBranch },
   { id: "plan", label: "Fix plan", icon: CheckCheck },
   { id: "agent", label: "Agent activity", icon: Radio },
   { id: "connect", label: "Connections", icon: Unplug },
 ] satisfies { id: Page; label: string; icon: typeof GitBranch }[];
-const scenarioOptions = [
-  { id: "takeover", label: "Stranger gets old number" },
-  { id: "lockout", label: "College email closes" },
-  { id: "both", label: "Both" },
-] satisfies { id: Preset; label: string }[];
+const modeOptions = [
+  { id: "takeover", label: "Someone else gets it" },
+  { id: "lockout", label: "I lose it" },
+] satisfies { id: Mode; label: string }[];
 
 function daysUntil(date: string) {
   return Math.ceil((Date.parse(`${date}T00:00:00`) - Date.now()) / 86_400_000);
@@ -82,7 +81,8 @@ export default function App() {
       : "graph",
   );
   const [light, setLight] = useState(false);
-  const [preset, setPreset] = useState<Preset>("takeover");
+  const [mode, setMode] = useState<Mode>("takeover");
+  const [target, setTarget] = useState<string | null>(null);
   const [depth, setDepth] = useState<"direct" | "full">("direct");
   const [keystones, setKeystones] = useState<Keystone[]>([]);
   const [graph, setGraph] = useState<GraphData | null>(null);
@@ -107,7 +107,7 @@ export default function App() {
   const [route, setRoute] = useState<Route | null>(null);
   const [creating, setCreating] = useState(false);
   const results = scenarios.filter(
-    (result) => preset === "both" || result.kind === preset,
+    (result) => result.kind === mode && result.root_ids[0] === target,
   );
   const directCount = new Set(
     results.flatMap((result) => result.direct_accounts),
@@ -140,12 +140,9 @@ export default function App() {
       api.getGraph(),
       api.getRoots(),
     ]);
-    const requests = rootScenarios(nextRoots);
-    const nextScenarios = await Promise.all(requests.map((request) => api.createScenario(request)));
     if (revision !== graphRevision.current) return;
     setGraph(nextGraph);
     setRoots(nextRoots);
-    setScenarios(nextScenarios);
   }, []);
 
   useEffect(() => {
@@ -169,12 +166,16 @@ export default function App() {
         const [nextGraph, nextRoots, , nextScreen] = await Promise.all([
           api.getGraph(), api.getRoots(), refreshPlans(), api.getScreen(),
         ]);
-        const nextScenarios = await Promise.all(rootScenarios(nextRoots).map((request) => api.createScenario(request)));
         if (!active || revision !== graphRevision.current) return;
+        const first = rootScenarios(nextRoots)[0];
+        setTarget((previous) => {
+          if (previous && nextRoots.some((root) => root.id === previous)) return previous;
+          if (first) setMode(first.kind);
+          return first?.root_ids[0] ?? nextRoots[0]?.id ?? null;
+        });
         setGraph(nextGraph);
         setRoots(nextRoots);
         setScreen(nextScreen);
-        setScenarios(nextScenarios);
         setStreamError("");
       } catch {
         if (active)
@@ -269,6 +270,22 @@ export default function App() {
   }, [reload, refreshGraph, refreshPlans]);
 
   useEffect(() => {
+    if (!graph || !target) return;
+    let active = true;
+    api
+      .createScenario({ kind: mode, root_ids: [target] })
+      .then((result) => {
+        if (active) setScenarios([result]);
+      })
+      .catch(() => {
+        if (active) setError("Could not run this scenario. Please try again.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [graph, target, mode]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = light ? "light" : "dark";
   }, [light]);
   useEffect(() => {
@@ -337,6 +354,18 @@ export default function App() {
     }
   }
   const oldPhone = roots.find((root) => root.kind === "phone" && ["retiring", "inactive"].includes(root.status));
+  const targetRoot = roots.find((root) => root.id === target);
+  const targetLabel = targetRoot
+    ? targetRoot.kind === "email"
+      ? `your ${targetRoot.label} inbox`
+      : targetRoot.kind === "phone"
+        ? `your number ${targetRoot.label}`
+        : targetRoot.label
+    : "a number or inbox";
+  function chooseTarget(id: string | null) {
+    setTarget(id);
+    setSelected(null);
+  }
   const college = roots.find((root) => root.kind === "email" && ["closing", "closed"].includes(root.status));
   const activePlanRoot =
     planRoot ??
@@ -434,22 +463,19 @@ export default function App() {
                 <div>
                   <span className="eyebrow">KNOW WHAT YOU COULD LOSE</span>
                   <h1>
-                    {preset === "lockout"
-                      ? "When an inbox closes."
-                      : preset === "both"
-                        ? "Two changes. One clear picture."
-                        : "An old number. A longer reach."}
+                    {mode === "lockout"
+                      ? `If you lose ${targetLabel}.`
+                      : `If someone else gets ${targetLabel}.`}
                   </h1>
                   <p>
-                    {preset === "lockout"
-                      ? "See which accounts lose fresh sign-in access when your college email closes."
-                      : "Follow the connections that outlast your phone number."}
+                    Click any number or inbox on the map to see what it reaches.
                   </p>
                 </div>
                 <button
                   className="primary-button"
-                  onClick={() => void createPlans()}
-                  disabled={creating || results.length === 0}
+                  onClick={() => target && void createPlans([target])}
+                  disabled={creating || results.length === 0 || !targetRoot || targetRoot.status === "active"}
+                  title={targetRoot?.status === "active" ? "Plans are for numbers and inboxes you are giving up." : undefined}
                 >
                   Plan the fix <ArrowUpRight size={17} />
                 </button>
@@ -503,23 +529,36 @@ export default function App() {
               <div className="map-workspace">
                 <div className="map-main">
                   <div className="map-toolbar">
+                    <label className="target-picker">
+                      What if
+                      <select
+                        aria-label="What if"
+                        value={target ?? ""}
+                        onChange={(event) => chooseTarget(event.target.value || null)}
+                      >
+                        {roots.map((root) => (
+                          <option key={root.id} value={root.id}>
+                            {root.label}
+                            {root.status !== "active" ? ` (${root.status})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <div
                       className="scenario-control"
                       role="group"
                       aria-label="Scenario"
                     >
-                      {scenarioOptions.map((option) => (
+                      {modeOptions.map((option) => (
                         <button
                           key={option.id}
-                          aria-pressed={preset === option.id}
+                          aria-pressed={mode === option.id}
                           onClick={() => {
-                            setPreset(option.id);
+                            setMode(option.id);
                             setSelected(null);
                           }}
                         >
-                          {option.id === "takeover" && oldPhone?.last4
-                            ? `Stranger gets ••${oldPhone.last4}`
-                            : option.label}
+                          {option.label}
                         </button>
                       ))}
                     </div>
@@ -560,9 +599,10 @@ export default function App() {
                       selected={selected}
                       explanation={explanation}
                       onSelect={setSelected}
+                      onSelectRoot={chooseTarget}
                       fixedAccountIds={plans
                         .filter(
-                          (plan) => preset === "both" || plan.kind === preset,
+                          (plan) => plan.kind === mode && plan.old_root === target,
                         )
                         .flatMap((plan) =>
                           plan.steps

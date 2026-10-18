@@ -54,13 +54,13 @@ export function ExplanationPanel({
           <h2>
             {lockoutOnly ? (
               <>
-                When the inbox goes,
+                When you lose it,
                 <br />
                 what goes with it?
               </>
             ) : (
               <>
-                One number.
+                One key.
                 <br />
                 More doors than you think.
               </>
@@ -68,8 +68,8 @@ export function ExplanationPanel({
           </h2>
           <p>
             {lockoutOnly
-              ? "See which accounts depend on the closing mailbox for fresh sign-in. Losing one recovery route may still leave another way in."
-              : "Start with the direct connections. Then follow the chain through Gmail."}
+              ? "See which accounts lose fresh sign-in access. Losing one recovery route may still leave another way in."
+              : "Start with the direct connections. Then follow the chain through the inboxes it opens."}
           </p>
           <p>Select an account on the map to see exactly how it can be reached.</p>
         </div>
