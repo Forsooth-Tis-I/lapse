@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUpRight, Mail, ShieldCheck, X } from "lucide-react";
+import { ArrowDown, Mail, ShieldCheck, X } from "lucide-react";
 import type { Explanation, GraphData, ScenarioResult } from "../api";
 
 export function ExplanationPanel({
@@ -9,7 +9,6 @@ export function ExplanationPanel({
   error,
   results,
   onClose,
-  onPlan,
 }: {
   selected: string | null;
   graph: GraphData;
@@ -18,7 +17,6 @@ export function ExplanationPanel({
   error: string;
   results: ScenarioResult[];
   onClose: () => void;
-  onPlan: () => void;
 }) {
   const node = graph.nodes.find((n) => n.id === selected);
   const unknown = node?.account?.modelled === false;
@@ -71,30 +69,7 @@ export function ExplanationPanel({
               ? "See which accounts depend on the closing mailbox for fresh sign-in. Losing one recovery route may still leave another way in."
               : "Start with the direct connections. Then follow the chain through Gmail."}
           </p>
-          <div className="instruction">
-            <span>01</span>
-            <p>
-              Switch to <strong>Full chain</strong> to see the hidden reach.
-            </p>
-          </div>
-          <div className="instruction">
-            <span>02</span>
-            <p>Select an account to see exactly how it can be reached.</p>
-          </div>
-          <div className="instruction">
-            <span>03</span>
-            <p>Fix the hub first. One change can protect several accounts.</p>
-          </div>
-          <button className="primary-button" onClick={onPlan}>
-            Plan the fix <ArrowUpRight size={17} />
-          </button>
-          <div className="blocked-callout">
-            <ShieldCheck size={19} />
-            <p>
-              <strong>Some doors stay closed.</strong> An AND method needs every
-              factor. A missing authenticator blocks that path.
-            </p>
-          </div>
+          <p>Select an account on the map to see exactly how it can be reached.</p>
         </div>
       ) : (
         <div className="explanation-content">

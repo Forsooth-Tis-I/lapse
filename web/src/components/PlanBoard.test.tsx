@@ -1,5 +1,5 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { planSchema, scenarioResultSchema } from "../api/contracts";
 import { PlanBoard } from "./PlanBoard";
 
@@ -104,5 +104,23 @@ describe("planner details", () => {
     const result = scenarioResultSchema.parse({ ...scenario, recovery_lost_accounts: [reached], lost_now_accounts: [] });
     expect(result.recovery_lost_accounts).toEqual([reached]);
     expect(result.lost_now_accounts).toEqual([]);
+  });
+});
+
+describe("root selection", () => {
+  const roots = [
+    {id: "phone_old", kind: "phone", label: "••4321", status: "retiring"},
+    {id: "email_college", kind: "email", label: "student@example.edu", status: "closing"},
+  ] as Parameters<typeof PlanBoard>[0]["roots"];
+
+  it("switches roots without a submit and builds only for the chosen root", () => {
+    const onSelectRoot = vi.fn();
+    const onCreateRoot = vi.fn();
+    render(<PlanBoard plans={[]} roots={roots} selectedRoot="email_college" onSelectRoot={onSelectRoot} onCreateRoot={onCreateRoot} creating={false} onCreate={() => {}} onChange={() => {}} />);
+    expect(screen.queryByRole("heading", {name: "••4321"})).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", {name: "Root to retire"}), {target: {value: "phone_old"}});
+    expect(onSelectRoot).toHaveBeenCalledWith("phone_old");
+    fireEvent.click(screen.getByRole("button", {name: "Build my fix plan"}));
+    expect(onCreateRoot).toHaveBeenCalledWith("email_college");
   });
 });

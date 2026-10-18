@@ -330,6 +330,7 @@ code {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  margin-top: 48px;
 }
 .nav-item {
   display: flex;
@@ -2113,4 +2114,9 @@ td:nth-child(3) code {
   .root-plan-form select { min-width: 0; width: 100%; }
   .chat-page { padding: 20px 14px; }
   .decision-summary { display: grid; }
+}
+
+.agent-screen-full img,
+.agent-screen-full .screen-empty {
+  height: min(68vh, 720px);
 }

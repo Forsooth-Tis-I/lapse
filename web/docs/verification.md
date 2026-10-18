@@ -43,8 +43,9 @@ All files below are in [screenshots](screenshots/). Older mock screenshots were 
 | Explanation | `explanation-evidence.png`, `unknown-splitwise.png` |
 | Plan | `plans.png`, `plans-phone.png`, `plans-manual-steps.png`, `plans-approved.png` |
 | Staged OTP | `plan-awaiting-otp.png` |
-| Chat | `chat-working.png`, `chat.png` |
-| Trace, stats, screen | `agent-trace.png`, `agent-screen-staged.png` |
+| Chat (removed from the web app; Telegram only) | `chat-working.png`, `chat.png` |
+| Trace and stats (removed from the web app; `GET /api/trace` remains) | `agent-trace.png` |
+| Agent screen | `agent-screen-staged.png` |
 | Connections | `connections.png`, `connections-saved.png`, `connections-mobile.png` |
 | Appearance and motion | `graph-light-reduced-motion.png` |
 
