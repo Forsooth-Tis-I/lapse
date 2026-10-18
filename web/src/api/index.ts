@@ -42,6 +42,7 @@ export const endpoints = {
   path: (fromId: string, toId: string) =>
     `/api/path?from_id=${segment(fromId)}&to_id=${segment(toId)}`,
   onboarding: "/api/onboarding",
+  telegramLink: "/api/telegram/link",
   ingest: "/api/ingest/run",
   events: "/api/events",
   scenario: (id: string) => `/api/scenarios/${segment(id)}`,
@@ -110,6 +111,8 @@ export function createRestApi(url = baseUrl): LapseApi {
     getStats: () => request(endpoints.stats, graphStatsSchema),
     getKeystones: () => request(endpoints.keystones, keystonesSchema),
     getPath: (fromId, toId) => request(endpoints.path(fromId, toId), routeSchema),
+    linkTelegram: () =>
+      request(endpoints.telegramLink, onboardingResultSchema, {}),
     onboard: (input) => {
       const validated = onboardingRequestSchema.safeParse(input);
       if (!validated.success)

@@ -51,7 +51,7 @@ def graph_view(uid: str, scenario_id: str | None = None, *, trace: Trace | None 
     method_labels = {}
     for row in methods:
         method = row["method"]
-        needs = [need for need in row["needs"] if need["id"]]
+        needs = list({need["id"]: need for need in row["needs"] if need["id"]}.values())
         label = method["label"]
         if len(needs) > 1:
             label += " (AND: " + " + ".join(need["label"] or need["id"] for need in needs) + ")"
@@ -71,15 +71,26 @@ def graph_view(uid: str, scenario_id: str | None = None, *, trace: Trace | None 
                         "method_id": method["id"],
                     }
                 )
+    # One edge per root/account pair: a number used for both recovery and SMS is one dependency.
+    # A mailbox's own host account is skipped: the inbox cannot recover the account that hosts it.
+    hosts = {(edge["source"], edge["target"]) for edge in edges}
+    pairs: dict[tuple[str, str], dict[str, Any]] = {}
     for use in uses:
-        labels = sorted(constraints.get((use["account_id"], use["root_id"]), set()))
+        key = (use["root_id"], use["account_id"])
+        if (use["account_id"], use["root_id"]) in hosts:
+            continue
+        pair = pairs.setdefault(key, {"roles": [], "confirmed": False})
+        pair["roles"].append(use["role"])
+        pair["confirmed"] = pair["confirmed"] or use["confirmed"]
+    for (root_id, account_id), pair in pairs.items():
+        labels = sorted(constraints.get((account_id, root_id), set()))
         edges.append(
             {
-                "id": f"uses:{use['account_id']}:{use['root_id']}:{use['role']}",
-                "source": use["root_id"],
-                "target": use["account_id"],
-                "label": "; ".join([use["role"], *labels]),
-                "confirmed": use["confirmed"],
+                "id": f"uses:{account_id}:{root_id}",
+                "source": root_id,
+                "target": account_id,
+                "label": "; ".join([" + ".join(sorted(set(pair["roles"]))), *labels]),
+                "confirmed": pair["confirmed"],
                 "derived": False,
             }
         )

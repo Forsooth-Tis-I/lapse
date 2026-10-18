@@ -69,6 +69,7 @@ def harness(monkeypatch):
             chat_for=Mock(return_value=7),
             bind=Mock(return_value="u"),
             new_link_code=Mock(return_value="link-code"),
+            claim_default=Mock(return_value="u"),
         ),
         "agent.agent": SimpleNamespace(
             respond=AsyncMock(return_value={"text": "Hello", "buttons": [], "tool_calls": []})
@@ -162,7 +163,7 @@ async def test_start_requires_onboarding_without_explicit_default(harness):
     h = harness
     h.modules["telegram_link"].uid_for.return_value = None
     await h.runtime.start(h.update, h.context)
-    assert "http://localhost:5173/onboarding" in last_text(h)
+    assert "http://localhost:8080/onboarding" in last_text(h)
     assert "&lt;code&gt;" in last_text(h)
     h.modules["telegram_link"].bind.assert_not_called()
 
@@ -172,8 +173,25 @@ async def test_default_binding_uses_one_time_link_path(harness):
     h.modules["telegram_link"].uid_for.return_value = None
     h.runtime.default_uid = "explicit-user"
     await h.runtime.start(h.update, h.context)
-    h.modules["telegram_link"].new_link_code.assert_called_once_with("explicit-user")
-    h.modules["telegram_link"].bind.assert_called_once_with("link-code", 7)
+    h.modules["telegram_link"].claim_default.assert_called_once_with("explicit-user", 7)
+
+
+async def test_default_binding_links_on_first_message(harness):
+    h = harness
+    h.modules["telegram_link"].uid_for.return_value = None
+    h.modules["telegram_link"].claim_default.return_value = "explicit-user"
+    h.runtime.default_uid = "explicit-user"
+    assert await h.runtime.uid(h.update, h.context) == "explicit-user"
+    h.modules["telegram_link"].claim_default.assert_called_once_with("explicit-user", 7)
+
+
+async def test_default_binding_refuses_second_chat(harness):
+    h = harness
+    h.modules["telegram_link"].uid_for.return_value = None
+    h.modules["telegram_link"].claim_default.return_value = None
+    h.runtime.default_uid = "explicit-user"
+    assert await h.runtime.uid(h.update, h.context) is None
+    assert "linked yet" in last_text(h)
 
 
 async def test_invalid_link_and_group_do_not_bind(harness):
@@ -272,7 +290,7 @@ async def test_buttons_short_storage_bound_to_user_and_chat(harness):
         {"label": "Plan", "action": "plan_root", "payload": {"root_id": "x" * 300}},
     ]
     keyboard = await h.runtime.keyboard("u", 7, buttons)
-    assert keyboard.inline_keyboard[0][0].url == "http://localhost:5173/graph?scenario=s"
+    assert keyboard.inline_keyboard[0][0].url == "http://localhost:8080/graph?scenario=s"
     callback = keyboard.inline_keyboard[1][0].callback_data
     assert len(callback.encode()) <= 64
     key = f"lapse:bot:callback:u:7:{callback}"

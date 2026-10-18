@@ -70,7 +70,7 @@ class PendingOTP:
 
 
 class BotRuntime:
-    def __init__(self, redis, *, web_url="http://localhost:5173", default_uid=None, slow_after=1.5):
+    def __init__(self, redis, *, web_url="http://localhost:8080", default_uid=None, slow_after=1.5):
         self.redis = redis
         self.web_url = web_url.rstrip("/")
         self.default_uid = default_uid
@@ -136,13 +136,19 @@ class BotRuntime:
         if update.effective_chat.type != "private":
             await update.effective_message.reply_text("Please message me in a private chat.")
             return None
-        uid = await invoke(dependency("telegram_link").uid_for, update.effective_chat.id)
+        link = dependency("telegram_link")
+        uid = await invoke(link.uid_for, update.effective_chat.id)
+        if uid is None and self.default_uid:
+            uid = await invoke(link.claim_default, self.default_uid, update.effective_chat.id)
         if uid is None:
             await self.send(context.bot, "", update.effective_chat.id, self.onboarding())
         return uid
 
     def onboarding(self):
-        return f"Open {self.web_url}/onboarding to get a link code, then send /start <code> here."
+        return (
+            f"This chat isn't linked yet. Open {self.web_url}/onboarding, press Get link code, "
+            "then send /start <code> here."
+        )
 
     async def start(self, update, context):
         chat = update.effective_chat
@@ -158,8 +164,7 @@ class BotRuntime:
             else:
                 uid = await invoke(link.uid_for, chat.id)
                 if uid is None and self.default_uid:
-                    code = await invoke(link.new_link_code, self.default_uid)
-                    uid = await invoke(link.bind, code, chat.id)
+                    uid = await invoke(link.claim_default, self.default_uid, chat.id)
         except ValueError:
             await self.send(
                 context.bot, "", chat.id, "That link code is invalid or expired. " + self.onboarding()

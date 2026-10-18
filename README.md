@@ -26,7 +26,7 @@ A contact list can show which accounts mention a number. It cannot tell whether 
 
 Lapse uses an AND/OR closure. Any eligible method can grant an account, but every prerequisite within that method must be controlled. A stranger has the reassigned root and no passwords. A user keeps password knowledge and the possession roots they still hold. The closure repeats until it gains nothing.
 
-**Depth 1** means the old number alone satisfies a method. **Full chain** also includes accounts reached through the recovered Gmail mailbox. The map's **Hops** slider steps through the chain one closure round at a time (old number → Google → Gmail → Notion is 3 hops). Dropbox's model requires both the email reset and its enrolled SMS factor. The old number supplies SMS; the mailbox supplies the reset email. Treating those requirements as independent edges would report a takeover too early. An authenticator factor the stranger does not possess can block another branch.
+**Depth 1** means the old number alone satisfies a method. **Full chain** also includes accounts reached through the recovered Gmail mailbox. Dropbox's model requires both the email reset and its enrolled SMS factor. The old number supplies SMS; the mailbox supplies the reset email. Treating those requirements as independent edges would report a takeover too early. An authenticator factor the stranger does not possess can block another branch.
 
 The planner tries changes on graph copies and reruns the same evaluator. The phone plan reduces distinct affected accounts from <!-- claim:plan_phone_old.before -->11<!-- /claim --> to <!-- claim:plan_phone_old.after -->0<!-- /claim --> in <!-- claim:plan_phone_old.steps -->7<!-- /claim --> proposed steps. These are simulated outcomes, not completed external changes. Takeover and lockout can overlap, so the planner counts their union.
 
@@ -46,7 +46,7 @@ Without FalkorDB, Lapse cannot resolve accounts, compute scenarios, choose fix o
 
 ## Agent
 
-Telegram is the ongoing conversation, in the Muse/Dots style. The agent can alert you before you ask. Reissue countdowns, mailbox closure, domain expiry, stale contacts, new devices, and missed accounts trigger graph checks.
+Telegram is the ongoing conversation, in the Muse/Dots style. In the local `docker compose` stack the first private chat that messages the bot is linked to `LAPSE_UID` automatically; later chats are refused and must use a one-time link code (set `BOT_ALLOW_DEFAULT_UID=false` to always require one). The agent can alert you before you ask. Reissue countdowns, mailbox closure, domain expiry, stale contacts, new devices, and missed accounts trigger graph checks.
 
 The same registry exposes <!-- claim:tools.count -->14<!-- /claim --> fixed MCP tools. The agent selects tools and explains results. It never writes Cypher. Every call is stored as a `ToolCall` node with tool arguments, named query, elapsed milliseconds, row count, and outcome, available from `GET /api/trace`. The web app is kept to the essentials (account map, fix plan, agent screen, connections); conversation happens in Telegram. The default transport calls the registry in-process; `AGENT_TOOL_TRANSPORT=mcp` uses MCP HTTP. [Tool contracts](docs/tools.md).
 

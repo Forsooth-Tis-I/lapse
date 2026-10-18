@@ -33,11 +33,8 @@ describe("scenario and execution integration", () => {
     await act(async () => {
       render(<App />);
     });
-    expect(screen.getByLabelText("5 at 1 hop, 10 at 3 hops")).toBeVisible();
-    const slider = screen.getByRole("slider", { name: "Hops" });
-    expect(slider).toHaveAttribute("aria-valuetext", "1 of 3, 5 accounts");
-    fireEvent.change(slider, { target: { value: "3" } });
-    expect(slider).toHaveAttribute("aria-valuetext", "3 of 3, 10 accounts");
+    expect(screen.getByLabelText("5 direct, 10 full chain")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Full chain" }));
     await act(async () => {
       fireEvent.change(
         screen.getByRole("combobox", { name: "Inspect account" }),
@@ -69,7 +66,7 @@ describe("scenario and execution integration", () => {
       await vi.advanceTimersByTimeAsync(700);
     });
     fireEvent.click(screen.getByRole("button", { name: "Account map" }));
-    expect(screen.getByLabelText(/, 4 at \d hops?$/)).toBeVisible();
+    expect(screen.getByLabelText(/, 4 full chain$/)).toBeVisible();
     expect(screen.getByText("Not affected in this scenario")).toBeVisible();
     expect(
       screen.queryByText("Email reset AND SMS code"),

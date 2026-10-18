@@ -355,9 +355,18 @@ def onboard(body: OnboardingInput, uid: Uid):
             raise HTTPException(
                 503, "Stored inboxes could not be decrypted. Check LAPSE_SECRET_KEY locally."
             ) from exc
+    return telegram_code(uid)
+
+
+def telegram_code(uid: str) -> dict:
     code = telegram_link.new_link_code(uid)
     bot = os.environ.get("TELEGRAM_BOT_USERNAME", "LapseAlfredBot").lstrip("@")
     return {"telegram_code": code, "telegram_url": f"https://t.me/{quote(bot, safe='')}?start={quote(code)}"}
+
+
+@app.post("/api/telegram/link", dependencies=[Depends(writable)])
+def telegram_link_code(uid: Uid):
+    return telegram_code(uid)
 
 
 @app.post("/api/ingest/run", dependencies=[Depends(writable)])

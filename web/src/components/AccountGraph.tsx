@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import cytoscape from "cytoscape";
 import type { Core, StylesheetJson } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import { Maximize2, Minus, Plus } from "lucide-react";
 import type { Explanation, GraphData, ScenarioResult } from "../api";
+import { useReducedMotion } from "../useReducedMotion";
 
 cytoscape.use(dagre);
 
@@ -13,11 +14,12 @@ const graphStyle: StylesheetJson = [
     style: {
       shape: "round-rectangle",
       width: 190,
-      height: 44,
-      label: "data(label)",
+      height: 50,
+      label: "data(display)",
       color: "#dddeda",
       "font-family": "DM Sans",
-      "font-size": 16,
+      "font-size": 13,
+      "line-height": 1.25,
       "font-weight": 500,
       "text-valign": "center",
       "text-halign": "center",
@@ -25,7 +27,7 @@ const graphStyle: StylesheetJson = [
       "border-color": "#58665c",
       "border-width": 1.2,
       "text-wrap": "wrap",
-      "text-max-width": "165px",
+      "text-max-width": "176px",
       "overlay-opacity": 0,
     },
   },
@@ -149,6 +151,24 @@ const graphStyle: StylesheetJson = [
   },
 ];
 
+const MAX_LINE = 24;
+
+function shorten(text: string) {
+  if (text.length <= MAX_LINE) return text;
+  const at = text.lastIndexOf("@");
+  if (at > 0) {
+    const domain = text.slice(at);
+    const keep = Math.max(3, MAX_LINE - domain.length - 1);
+    return `${text.slice(0, keep)}…${domain}`;
+  }
+  return `${text.slice(0, MAX_LINE - 1)}…`;
+}
+
+export function nodeLabel(node: GraphData["nodes"][number]) {
+  if (node.root?.kind === "email") return `Inbox\n${shorten(node.label)}`;
+  return node.label.split(" · ").map(shorten).join("\n");
+}
+
 export function displayReach(graph: GraphData, results: ScenarioResult[]) {
   const reached = results.flatMap((result) => result.affected_accounts.map((item) => ({...item, kind: result.kind})));
   for (const node of graph.nodes) {
@@ -165,8 +185,7 @@ export function displayReach(graph: GraphData, results: ScenarioResult[]) {
 export function AccountGraph({
   graph,
   results,
-  hops,
-  maxHops,
+  depth,
   keystoneIds = [],
   selected,
   explanation,
@@ -175,8 +194,7 @@ export function AccountGraph({
 }: {
   graph: GraphData;
   results: ScenarioResult[];
-  hops: number;
-  maxHops: number;
+  depth: "direct" | "full";
   keystoneIds?: string[];
   selected: string | null;
   explanation: Explanation | null;
@@ -187,6 +205,9 @@ export function AccountGraph({
   const instance = useRef<Core | null>(null);
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
+  const reduced = useReducedMotion();
+  const [round, setRound] = useState(1);
+  const maxRound = Math.max(1, ...results.map((result) => result.rounds));
   const scenarioKey = results.map((result) => result.id).join(":");
   const displayReached = displayReach(graph, results);
   const reachedIds = displayReached.map((item) => item.node_id);
@@ -230,6 +251,15 @@ export function AccountGraph({
   const membershipKey = [...relevantIds].sort().join(":");
 
   useEffect(() => {
+    setRound(depth === "direct" ? 1 : reduced ? maxRound : 1);
+    if (depth !== "full" || reduced) return;
+    const timers = Array.from({ length: maxRound - 1 }, (_, i) =>
+      window.setTimeout(() => setRound(i + 2), (i + 1) * 650),
+    );
+    return () => timers.forEach(window.clearTimeout);
+  }, [depth, maxRound, scenarioKey, reduced]);
+
+  useEffect(() => {
     if (!container.current) return;
     const cy = cytoscape({
       container: container.current,
@@ -237,7 +267,7 @@ export function AccountGraph({
         ...graph.nodes
           .filter((node) => relevantIds.has(node.id))
           .map((node) => ({
-            data: { id: node.id, label: node.label },
+            data: { id: node.id, label: node.label, display: nodeLabel(node) },
             classes: node.node_type === "Root" ? "root" : "",
           })),
         ...graph.edges
@@ -330,13 +360,16 @@ export function AccountGraph({
     const reached = new Map(
       displayReached.map((item) => [item.node_id, item] as const),
     );
+    const direct = new Set(results.flatMap((result) => result.direct_accounts));
     const seeds = new Set(results.flatMap((result) => result.root_ids));
     const unknown = new Set(
       results.flatMap((result) => result.unknown_accounts),
     );
     const visible = (id: string) => {
       const item = reached.get(id);
-      return !item || item.round <= hops;
+      return (
+        !item || (depth === "direct" ? direct.has(id) : item.round <= round)
+      );
     };
     cy.batch(() => {
       cy.elements().removeClass(
@@ -391,7 +424,7 @@ export function AccountGraph({
           cy.getElementById(selected).neighborhood().removeClass("dimmed");
       }
     });
-  }, [graph, results, hops, keystoneIds, selected, explanation, fixedAccountIds]);
+  }, [graph, results, depth, round, keystoneIds, selected, explanation, fixedAccountIds]);
 
   return (
     <div className="graph-visual">
@@ -403,13 +436,13 @@ export function AccountGraph({
       />
       <div className="graph-corner">
         <span className="mono">
-          HOP {Math.min(hops, maxHops)} / {maxHops}
+          {depth === "direct" ? "DEPTH 1" : `ROUND ${round} / ${maxRound}`}
         </span>
         <span>
-          {hops <= 1
+          {depth === "direct"
             ? "The connections you can see."
-            : hops < maxHops
-              ? "Each hop follows one more account."
+            : round < maxRound
+              ? "Following the next connection…"
               : "The complete chain, under modelled methods."}
         </span>
       </div>

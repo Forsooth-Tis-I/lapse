@@ -5,6 +5,7 @@ import {
   CheckCheck,
   CircleHelp,
   GitBranch,
+  Layers3,
   Moon,
   Radio,
   Sun,
@@ -24,7 +25,7 @@ import type {
   Route,
   ScenarioResult,
 } from "./api";
-import { AccountGraph, displayReach } from "./components/AccountGraph";
+import { AccountGraph } from "./components/AccountGraph";
 import { ExplanationPanel } from "./components/ExplanationPanel";
 import { PlanBoard } from "./components/PlanBoard";
 import { AgentPanel } from "./components/AgentPanel";
@@ -40,7 +41,7 @@ const navigation = [
   { id: "connect", label: "Connections", icon: Unplug },
 ] satisfies { id: Page; label: string; icon: typeof GitBranch }[];
 const scenarioOptions = [
-  { id: "takeover", label: "Stranger gets ••4321" },
+  { id: "takeover", label: "Stranger gets old number" },
   { id: "lockout", label: "College email closes" },
   { id: "both", label: "Both" },
 ] satisfies { id: Preset; label: string }[];
@@ -75,10 +76,14 @@ function rootScenarios(roots: Root[]) {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("graph");
+  const [page, setPage] = useState<Page>(() =>
+    ["/onboarding", "/connect"].includes(window.location.pathname)
+      ? "connect"
+      : "graph",
+  );
   const [light, setLight] = useState(false);
   const [preset, setPreset] = useState<Preset>("takeover");
-  const [hops, setHops] = useState(1);
+  const [depth, setDepth] = useState<"direct" | "full">("direct");
   const [keystones, setKeystones] = useState<Keystone[]>([]);
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [roots, setRoots] = useState<Root[]>([]);
@@ -104,20 +109,16 @@ export default function App() {
   const results = scenarios.filter(
     (result) => preset === "both" || result.kind === preset,
   );
-  const reached = graph
-    ? displayReach(graph, results)
-    : results.flatMap((result) => result.affected_accounts);
-  const maxHops = Math.max(1, ...reached.map((item) => item.round));
-  const shownHops = Math.min(hops, maxHops);
-  const countAt = (limit: number) =>
-    new Set(
-      reached
-        .filter((item) => item.node_type === "Account" && item.round <= limit)
+  const directCount = new Set(
+    results.flatMap((result) => result.direct_accounts),
+  ).size;
+  const fullCount = new Set(
+    results.flatMap((result) =>
+      result.affected_accounts
+        .filter((item) => item.node_type === "Account")
         .map((item) => item.node_id),
-    ).size;
-  const directCount = countAt(1);
-  const fullCount = countAt(maxHops);
-  const hopCount = countAt(shownHops);
+    ),
+  ).size;
   const topKeystone = keystones[0];
   const unknownCount = new Set(
     results.flatMap((result) => result.unknown_accounts),
@@ -456,12 +457,12 @@ export default function App() {
               <div className="summary-strip">
                 <div className="reach-summary">
                   <span className="eyebrow">ACCOUNTS AT RISK</span>
-                  <div className="reach-numbers" aria-label={`${directCount} at 1 hop, ${fullCount} at ${maxHops} hops`}>
+                  <div className="reach-numbers" aria-label={`${directCount} direct, ${fullCount} full chain`}>
                     <strong>{directCount}</strong>
-                    <span>1 hop</span>
+                    <span>direct</span>
                     <ArrowRight size={22} />
                     <strong className="full-count">{fullCount}</strong>
-                    <span>{maxHops} hops</span>
+                    <span>full chain</span>
                   </div>
                 </div>
                 <div className="unknown-summary">
@@ -516,26 +517,31 @@ export default function App() {
                             setSelected(null);
                           }}
                         >
-                          {option.label}
+                          {option.id === "takeover" && oldPhone?.last4
+                            ? `Stranger gets ••${oldPhone.last4}`
+                            : option.label}
                         </button>
                       ))}
                     </div>
-                    <label className="hop-control">
-                      <span>Hops</span>
-                      <input
-                        type="range"
-                        min={1}
-                        max={maxHops}
-                        step={1}
-                        value={shownHops}
-                        aria-label="Hops"
-                        aria-valuetext={`${shownHops} of ${maxHops}, ${hopCount} accounts`}
-                        onChange={(event) => setHops(Number(event.target.value))}
-                      />
-                      <output aria-live="polite">
-                        {shownHops} / {maxHops} · {hopCount} accounts
-                      </output>
-                    </label>
+                    <div
+                      className="depth-control"
+                      role="group"
+                      aria-label="Depth"
+                    >
+                      <button
+                        aria-pressed={depth === "direct"}
+                        onClick={() => setDepth("direct")}
+                      >
+                        Direct only
+                      </button>
+                      <button
+                        aria-pressed={depth === "full"}
+                        onClick={() => setDepth("full")}
+                      >
+                        <Layers3 size={14} />
+                        Full chain
+                      </button>
+                    </div>
                   </div>
                   {topKeystone && (
                     <p className="keystone-line">
@@ -549,8 +555,7 @@ export default function App() {
                     <AccountGraph
                       graph={graph}
                       results={results}
-                      hops={shownHops}
-                      maxHops={maxHops}
+                      depth={depth}
                       keystoneIds={keystones.map((item) => item.id)}
                       selected={selected}
                       explanation={explanation}

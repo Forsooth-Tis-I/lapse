@@ -601,24 +601,29 @@ main {
   background: var(--raised);
   box-shadow: inset 0 0 0 1px var(--border);
 }
-.hop-control {
+.depth-control {
   display: flex;
   align-items: center;
-  gap: 10px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 5px 10px;
-  font-size: 11px;
+  padding: 3px;
+  gap: 3px;
+}
+.depth-control button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  min-height: 29px;
+  background: transparent;
   color: var(--muted);
-}
-.hop-control input {
-  width: 140px;
-  accent-color: var(--sage);
-}
-.hop-control output {
-  font-family: ui-monospace, monospace;
+  border-radius: 3px;
+  padding: 6px 9px;
   white-space: nowrap;
-  color: var(--ink);
+}
+.depth-control button[aria-pressed="true"] {
+  color: var(--sage-ink);
+  background: var(--sage);
 }
 .shortest-route {
   display: grid;
@@ -1520,8 +1525,8 @@ td:nth-child(3) code {
     margin-bottom: 20px;
   }
   .scenario-control button,
-  .hop-control {
-    font-size: 12px;
+  .depth-control button {
+    font-size: 11px;
   }
   .map-toolbar {
     padding: 17px 22px;

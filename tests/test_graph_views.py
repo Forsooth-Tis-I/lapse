@@ -37,6 +37,9 @@ def test_graph_payload_dependencies_and_and_constraints(view_graph):
     assert nodes["google"]["label"] == "Google · demo@example.com"
     assert all(edge["source"] in nodes and edge["target"] in nodes for edge in result["edges"])
     assert len({edge["id"] for edge in result["edges"]}) == len(result["edges"])
+    pairs = [(edge["source"], edge["target"]) for edge in result["edges"]]
+    assert len(set(pairs)) == len(pairs)
+    assert not any("AND: ••4321 (Vi) + ••4321 (Vi)" in edge["label"] for edge in result["edges"])
     assert any(edge["source"] == "google" and edge["target"] == "email_primary" for edge in result["edges"])
     for account in ("dropbox", "github"):
         assert any(edge["target"] == account and "AND" in edge["label"] for edge in result["edges"])

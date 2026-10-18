@@ -562,6 +562,10 @@ export function createMockApi(): LapseApi {
         route: ids.map((id) => ({ id, label: label(id) })),
       };
     },
+    linkTelegram: async () => ({
+      telegram_code: "LAPSE-DEMO-4821",
+      telegram_url: "https://t.me/",
+    }),
     onboard: async (input) => {
       if (!onboardingRequestSchema.safeParse(input).success)
         throw new Error("Check the inbox and phone fields.");

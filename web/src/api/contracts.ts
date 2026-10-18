@@ -434,6 +434,7 @@ export interface LapseApi {
   getKeystones(): Promise<Keystones>;
   getPath(fromId: string, toId: string): Promise<Route>;
   onboard(input: OnboardingRequest): Promise<OnboardingResult>;
+  linkTelegram(): Promise<OnboardingResult>;
   runIngest(inboxes?: string[]): Promise<{ started: boolean }>;
   subscribe(
     onEvent: (event: UiEvent) => void,

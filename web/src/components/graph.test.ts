@@ -15,3 +15,20 @@ describe("live mailbox display", () => {
     expect(reached.some((item) => item.node_id === "splitwise")).toBe(false);
   });
 });
+
+describe("node labels", () => {
+  it("splits service and address and keeps long addresses inside the node", async () => {
+    const { nodeLabel } = await import("./AccountGraph");
+    expect(
+      nodeLabel({ id: "a", label: "Google · averyveryverylongname@gmail.com", node_type: "Account" }),
+    ).toBe("Google\naveryveryvery…@gmail.com");
+    expect(
+      nodeLabel({
+        id: "r",
+        label: "me@example.com",
+        node_type: "Root",
+        root: { id: "r", kind: "email", label: "me@example.com", status: "active" } as never,
+      }),
+    ).toBe("Inbox\nme@example.com");
+  });
+});
