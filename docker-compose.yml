@@ -28,6 +28,7 @@ services:
       - "3001:3000"                     # FalkorDB Browser at http://localhost:3001
     environment:
       FALKORDB_ARGS: "TIMEOUT_MAX 30000 TIMEOUT_DEFAULT 10000 RESULTSET_SIZE 100000 MAX_QUEUED_QUERIES 200"
+      REDIS_ARGS: "--appendonly yes"   # keep Telegram links and plans across restarts
     volumes:
       - ./data/falkordb:/var/lib/falkordb/data
     healthcheck:
@@ -60,6 +61,12 @@ services:
     build:
       context: .
       target: bot
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      WEB_URL: ${WEB_URL:-http://localhost:8080}
+      # Local single-user stack: the first Telegram chat links to LAPSE_UID automatically.
+      BOT_ALLOW_DEFAULT_UID: ${BOT_ALLOW_DEFAULT_UID:-true}
   mcp:
     <<: *app
     build:

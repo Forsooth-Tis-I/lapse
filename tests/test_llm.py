@@ -10,7 +10,9 @@ from lapse import llm
 
 @pytest.fixture
 def configuration(monkeypatch):
-    config = SimpleNamespace(llm_base_url="https://opencode.ai/zen/go/v1", llm_api_key="test", llm_model="primary")
+    config = SimpleNamespace(
+        llm_base_url="https://opencode.ai/zen/go/v1", llm_api_key="test", llm_model="primary"
+    )
     monkeypatch.setattr(llm, "settings", lambda: config)
     monkeypatch.setenv("LLM_FALLBACK_MODELS", " fallback-one, fallback-two,primary ")
     return config
@@ -52,7 +54,9 @@ def test_models_fail_over_in_order_without_duplicate_primary(monkeypatch, config
         return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]})
 
     diagnostics = {}
-    with OpenAI(api_key="test", http_client=httpx.Client(transport=httpx.MockTransport(respond))) as connection:
+    with OpenAI(
+        api_key="test", http_client=httpx.Client(transport=httpx.MockTransport(respond))
+    ) as connection:
         response = llm.complete(connection, messages=[], diagnostics=diagnostics)
     assert response.choices[0].message.content == "ok"
     assert attempts == ["primary", "fallback-one", "fallback-two"]
@@ -94,8 +98,14 @@ def test_doctor_uses_chat_completion(monkeypatch):
 
     monkeypatch.setattr(llm, "complete", complete)
     assert doctor.check_llm(dict.fromkeys(["LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"], "configured")).ok
-    assert calls == [{"messages": [{"role": "user", "content": "Reply OK."}], "max_tokens": 1,
-                      "model": "configured", "fallback_models": ""}]
+    assert calls == [
+        {
+            "messages": [{"role": "user", "content": "Reply OK."}],
+            "max_tokens": 1,
+            "model": "configured",
+            "fallback_models": "",
+        }
+    ]
 
 
 def test_mcp_respects_container_bind(monkeypatch):
@@ -124,12 +134,18 @@ def test_doctor_probes_selected_configuration(monkeypatch, configuration):
         requests.append(request)
         return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]})
 
-    monkeypatch.setattr(llm, "OpenAI", lambda **kwargs: OpenAI(
-        **kwargs, http_client=httpx.Client(transport=httpx.MockTransport(respond))
-    ))
-    assert doctor.check_llm({
-        "LLM_BASE_URL": "https://selected.invalid/v1", "LLM_API_KEY": "selected-key", "LLM_MODEL": "selected-model"
-    }).ok
+    monkeypatch.setattr(
+        llm,
+        "OpenAI",
+        lambda **kwargs: OpenAI(**kwargs, http_client=httpx.Client(transport=httpx.MockTransport(respond))),
+    )
+    assert doctor.check_llm(
+        {
+            "LLM_BASE_URL": "https://selected.invalid/v1",
+            "LLM_API_KEY": "selected-key",
+            "LLM_MODEL": "selected-model",
+        }
+    ).ok
     assert requests[0].url.host == "selected.invalid"
     assert requests[0].headers["authorization"] == "Bearer selected-key"
     assert json.loads(requests[0].content)["model"] == "selected-model"

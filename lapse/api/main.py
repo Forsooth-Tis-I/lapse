@@ -295,6 +295,25 @@ def legacy_screenshot(name: str, uid: Uid):
     return FileResponse(screenshot_path(uid, name))
 
 
+@app.get("/api/keystones")
+def keystones(uid: Uid, limit: int = 3):
+    return graph_call(
+        uid, "lapse.graph.algorithms", "keystones", max(1, min(limit, 10)), audit_args={"limit": limit}
+    )
+
+
+@app.get("/api/path")
+def path(uid: Uid, from_id: str, to_id: str):
+    return graph_call(
+        uid,
+        "lapse.graph.algorithms",
+        "shortest_path",
+        from_id,
+        to_id,
+        audit_args={"from_id": from_id, "to_id": to_id},
+    )
+
+
 @app.get("/api/stats", response_model=GraphStats)
 def stats(uid: Uid):
     return graph_call(uid, "lapse.graph.views", "stats")
@@ -336,9 +355,18 @@ def onboard(body: OnboardingInput, uid: Uid):
             raise HTTPException(
                 503, "Stored inboxes could not be decrypted. Check LAPSE_SECRET_KEY locally."
             ) from exc
+    return telegram_code(uid)
+
+
+def telegram_code(uid: str) -> dict:
     code = telegram_link.new_link_code(uid)
     bot = os.environ.get("TELEGRAM_BOT_USERNAME", "LapseAlfredBot").lstrip("@")
     return {"telegram_code": code, "telegram_url": f"https://t.me/{quote(bot, safe='')}?start={quote(code)}"}
+
+
+@app.post("/api/telegram/link", dependencies=[Depends(writable)])
+def telegram_link_code(uid: Uid):
+    return telegram_code(uid)
 
 
 @app.post("/api/ingest/run", dependencies=[Depends(writable)])

@@ -122,7 +122,8 @@ class BatchExtractor:
         for attempt in range(self.attempts):
             try:
                 response = llm.complete(
-                    self.client, diagnostics=self.diagnostics,
+                    self.client,
+                    diagnostics=self.diagnostics,
                     messages=[
                         {"role": "system", "content": prompt},
                         {"role": "user", "content": json.dumps(payload)},

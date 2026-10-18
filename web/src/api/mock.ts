@@ -72,6 +72,24 @@ export function createMockApi(): LapseApi {
     listeners.forEach((listener) => listener(clone(event)));
   const later = (delay: number, callback: () => void) =>
     setTimeout(callback, delay);
+  const singleFactor = (id: string) =>
+    graph.edges
+      .filter(
+        (edge) =>
+          edge.source === id && edge.confirmed && !edge.label.includes(" AND "),
+      )
+      .map((edge) => edge.target);
+  const reach = (id: string) => {
+    const seen = new Set<string>();
+    const queue = [id];
+    while (queue.length)
+      for (const next of singleFactor(queue.shift()!))
+        if (next !== id && !seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+    return seen;
+  };
   const stats = () => ({
     nodes: graph.nodes.length,
     edges: graph.edges.length,
@@ -484,6 +502,70 @@ export function createMockApi(): LapseApi {
       clone(traces.filter((item) => !since || item.at > since)),
     getScreen: async () => clone(screen),
     getStats: async () => stats(),
+    getKeystones: async () => {
+      const ranked = graph.nodes
+        .map((node) => {
+          const downstream = reach(node.id);
+          const upstream = graph.nodes.filter((other) =>
+            reach(other.id).has(node.id),
+          ).length;
+          return { node, downstream, score: upstream * downstream.size };
+        })
+        .filter((item) => item.score > 0)
+        .sort(
+          (a, b) =>
+            b.score - a.score ||
+            b.downstream.size - a.downstream.size ||
+            a.node.id.localeCompare(b.node.id),
+        )
+        .slice(0, 3);
+      return {
+        outcome: "keystones" as const,
+        algorithm: "betweenness",
+        keystones: ranked.map(({ node, downstream, score }) => ({
+          id: node.id,
+          label: node.label,
+          node_type: node.node_type,
+          score,
+          downstream: [...downstream].filter((id) =>
+            graph.nodes.some(
+              (item) => item.id === id && item.node_type === "Account",
+            ),
+          ).length,
+          downstream_labels: [...downstream].map(label).sort(),
+        })),
+      };
+    },
+    getPath: async (fromId, toId) => {
+      const previous = new Map<string, string>([[fromId, fromId]]);
+      const queue = [fromId];
+      while (queue.length && !previous.has(toId)) {
+        const current = queue.shift()!;
+        for (const next of singleFactor(current))
+          if (!previous.has(next)) {
+            previous.set(next, current);
+            queue.push(next);
+          }
+      }
+      if (!previous.has(toId) || fromId === toId)
+        return {
+          outcome: "no_single_route" as const,
+          from_id: fromId,
+          to_id: toId,
+        };
+      const ids = [toId];
+      while (ids[0] !== fromId) ids.unshift(previous.get(ids[0])!);
+      return {
+        outcome: "route" as const,
+        algorithm: "SPpaths",
+        hops: ids.length - 1,
+        route: ids.map((id) => ({ id, label: label(id) })),
+      };
+    },
+    linkTelegram: async () => ({
+      telegram_code: "LAPSE-DEMO-4821",
+      telegram_url: "https://t.me/",
+    }),
     onboard: async (input) => {
       if (!onboardingRequestSchema.safeParse(input).success)
         throw new Error("Check the inbox and phone fields.");

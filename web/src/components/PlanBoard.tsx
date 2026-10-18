@@ -189,15 +189,20 @@ export function PlanBoard({
   creating,
   roots = [],
   onCreateRoot,
+  selectedRoot = null,
+  onSelectRoot,
+  accountLabels = {},
 }: {
   plans: Plan[];
   roots?: Root[];
   onCreateRoot?: (rootId: string) => void;
+  selectedRoot?: string | null;
+  onSelectRoot?: (rootId: string) => void;
+  accountLabels?: Record<string, string>;
   onChange: (step: Change) => void;
   onCreate: () => void;
   creating: boolean;
 }) {
-  const [rootId, setRootId] = useState("");
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState("");
   const steps = plans.flatMap((plan) => plan.steps);
@@ -238,13 +243,12 @@ export function PlanBoard({
           </button>
         )}
       </div>
-      {onCreateRoot && <form className="root-plan-form" onSubmit={(event) => { event.preventDefault(); if (rootId) onCreateRoot(rootId); }}>
-        <label>Plan from a root<select aria-label="Root to retire" required value={rootId} onChange={(event) => setRootId(event.target.value)}>
-          <option value="">Choose a phone, email, or device</option>
+      {onSelectRoot && <div className="root-plan-form">
+        <label>Root<select aria-label="Root to retire" value={selectedRoot ?? ""} onChange={(event) => { if (event.target.value) onSelectRoot(event.target.value); }}>
+          {!selectedRoot && <option value="">Choose a phone, email, or device</option>}
           {roots.map((root) => <option key={root.id} value={root.id}>{root.label} · {root.status}</option>)}
         </select></label>
-        <button className="secondary-button" disabled={creating || !rootId}>{creating ? "Building plan…" : "Plan this root"}</button>
-      </form>}
+      </div>}
       {error && (
         <div className="error-banner" role="alert">
           {error}
@@ -253,12 +257,12 @@ export function PlanBoard({
       {plans.length === 0 ? (
         <div className="empty-panel">
           <ShieldCheck size={34} />
-          <h2>A smaller risk, one change at a time.</h2>
-          <p>Build an ordered plan for the selected scenario, or choose a root above.</p>
+          <h2>No plan for this root yet.</h2>
+          <p>Lapse will order the changes so the highest-impact fix comes first.</p>
           <button
             className="primary-button"
             disabled={creating}
-            onClick={onCreate}
+            onClick={() => (selectedRoot && onCreateRoot ? onCreateRoot(selectedRoot) : onCreate())}
           >
             {creating ? "Building plan…" : "Build my fix plan"}
           </button>
@@ -287,14 +291,13 @@ export function PlanBoard({
               </div>}
               {plan.remaining_accounts && <div>
                 <dt>Still affected after this plan</dt>
-                <dd>{plan.remaining_accounts.map((id) => plan.steps.find((step) => step.account_id === id)?.account_label ?? id).join(", ") || "None under the methods we model"}</dd>
+                <dd>{plan.remaining_accounts.map((id) => plan.steps.find((step) => step.account_id === id)?.account_label ?? accountLabels[id] ?? id).join(", ") || "None under the methods we model"}</dd>
               </div>}
               {plan.unknown_accounts && <div>
                 <dt>Unknown, not safe</dt>
-                <dd>{plan.unknown_accounts.map((id) => plan.steps.find((step) => step.account_id === id)?.account_label ?? id).join(", ") || "None reported"}</dd>
+                <dd>{plan.unknown_accounts.map((id) => plan.steps.find((step) => step.account_id === id)?.account_label ?? accountLabels[id] ?? id).join(", ") || "None reported"}</dd>
               </div>}
             </dl>
-            <p className="plan-risk-note">The total counts each account once. Takeover and lockout can overlap, under the methods we model.</p>
             {plan.note && <p className="plan-risk-note">{plan.note}</p>}
             <AdditionalDetails value={plan} known={planSchema.shape} />
             {!plan.feasible && (
@@ -317,10 +320,6 @@ export function PlanBoard({
           </section>
         ))
       )}
-      <p className="footnote">
-        Approval permits the listed action. A change is complete only after
-        verification. Manual T4 steps are always separate.
-      </p>
     </section>
   );
 }

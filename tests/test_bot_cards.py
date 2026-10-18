@@ -3,8 +3,17 @@ from datetime import UTC, date, datetime
 import pytest
 
 from lapse.agent import guard
-from lapse.bot.cards import format_date, plan_card, scenario_card
+from lapse.bot.cards import account_risk_card, format_date, plan_card, scenario_card
 from lapse.contracts import Change, Plan, Reached, Root, ScenarioResult
+
+
+def test_incomplete_risk_card_escapes_root_labels():
+    root = Root(id="closing", kind="email", label="<inbox>", address="<demo@example.edu>")
+    text = account_risk_card({"id": "account", "display": "Canva"}, [], incomplete=[root])
+    assert "assessment is incomplete" in text
+    assert "&lt;demo@example.edu&gt;" in text
+    assert "<demo@example.edu>" not in text
+    assert "don't put" not in text
 
 
 @pytest.mark.parametrize(
@@ -165,3 +174,24 @@ def test_service_using_college_address_is_not_described_as_shutting_down():
     text = scenario_card(root, result)
     assert "You'd lose access to <b>Notion</b> (demo@example.edu)." in text
     assert "that comes with it goes too" not in text
+
+
+def test_lockout_of_kept_email_is_hypothetical():
+    root = Root(id="primary", kind="email", label="me@example.com", address="me@example.com")
+    result = ScenarioResult(
+        id="s",
+        kind="lockout",
+        root_ids=["primary"],
+        actor="user",
+        rounds=0,
+        affected_accounts=[],
+        lost_now_accounts=[],
+        recovery_lost_accounts=[],
+        direct_accounts=[],
+        unknown_accounts=[],
+        total_accounts=0,
+        ms=0,
+    )
+    text = scenario_card(root, result)
+    assert text.startswith("If you lost your email (me@example.com):")
+    assert "shuts down" not in text

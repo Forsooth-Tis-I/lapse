@@ -44,6 +44,19 @@ def format_date(value, *, today=None, bold=False) -> str:
     return f"{label} ({relative})"
 
 
+def short_root(root: Root) -> str:
+    """Plain-text button label for a root; Telegram buttons do not render HTML."""
+    if root.kind == "phone":
+        name = f"{'new' if root.status == 'active' else 'old'} number"
+        return f"{name} ••{root.last4}" if root.last4 else name
+    if root.kind == "email":
+        kind = {"edu": "college ", "work": "work "}.get(root.email_kind, "")
+        return f"{kind}email"
+    if root.kind == "domain":
+        return f"domain {root.name or root.label}"
+    return root.label
+
+
 def root_name(root: Root) -> str:
     if root.kind == "phone" and root.last4:
         if root.status == "active":
@@ -107,8 +120,11 @@ def scenario_card(root: Root, result: ScenarioResult, *, today=None, accounts=()
         if not result.affected_accounts:
             lines.append("None of the accounts I've checked can be accessed through it.")
     else:
-        verb = "shuts down" if root.kind == "email" else "will no longer be available"
-        lines = [f"{name[0].upper() + name[1:]} {verb}{dated}."]
+        if root.status == "active":
+            lines = [f"If you lost {name}:"]
+        else:
+            verb = "shuts down" if root.kind == "email" else "will no longer be available"
+            lines = [f"{name[0].upper() + name[1:]} {verb}{dated}."]
         hosted = [
             a
             for a in result.lost_now_accounts
@@ -190,7 +206,7 @@ def risk_summary(items, *, today=None) -> str:
     return "\n".join(lines)
 
 
-def account_risk_card(account: dict, items, *, today=None) -> str:
+def account_risk_card(account: dict, items, *, today=None, incomplete=()) -> str:
     name = account_name(account["display"], account.get("identifier"))
     lines = []
     for root, result in items:
@@ -208,8 +224,17 @@ def account_risk_card(account: dict, items, *, today=None) -> str:
             lines.append(
                 f"When you lose {root_name(root)}{dated}, you could lose access to {name}{condition}."
             )
+    if incomplete:
+        contacts = join_names(root_name(root) if root else "a changing contact" for root in incomplete)
+        warning = (
+            f"I couldn't complete the checks for {contacts}. "
+            "This assessment is incomplete; I can't rule out other risks."
+        )
+        if not lines:
+            return f"I couldn't complete the risk assessment for your {name}. {warning}"
+        return " ".join(lines) + " " + warning + " Want me to fix the confirmed risks?"
     if not lines:
-        return f"The changes you've told me about don't put your {name} at risk based on how it lets you sign in and get back in."
+        return f"The changes you've told me about don't put your {name} at risk under the methods we model."
     return " ".join(lines) + " Want me to fix it?"
 
 

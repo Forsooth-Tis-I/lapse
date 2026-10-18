@@ -1,24 +1,24 @@
-import { ArrowDown, ArrowUpRight, Mail, ShieldCheck, X } from "lucide-react";
-import type { Explanation, GraphData, ScenarioResult } from "../api";
+import { ArrowDown, Mail, ShieldCheck, X } from "lucide-react";
+import type { Explanation, GraphData, Route, ScenarioResult } from "../api";
 
 export function ExplanationPanel({
   selected,
   graph,
   explanation,
+  route = null,
   loading,
   error,
   results,
   onClose,
-  onPlan,
 }: {
   selected: string | null;
   graph: GraphData;
   explanation: Explanation | null;
+  route?: Route | null;
   loading: boolean;
   error: string;
   results: ScenarioResult[];
   onClose: () => void;
-  onPlan: () => void;
 }) {
   const node = graph.nodes.find((n) => n.id === selected);
   const unknown = node?.account?.modelled === false;
@@ -54,13 +54,13 @@ export function ExplanationPanel({
           <h2>
             {lockoutOnly ? (
               <>
-                When the inbox goes,
+                When you lose it,
                 <br />
                 what goes with it?
               </>
             ) : (
               <>
-                One number.
+                One key.
                 <br />
                 More doors than you think.
               </>
@@ -68,38 +68,15 @@ export function ExplanationPanel({
           </h2>
           <p>
             {lockoutOnly
-              ? "See which accounts depend on the closing mailbox for fresh sign-in. Losing one recovery route may still leave another way in."
-              : "Start with the direct connections. Then follow the chain through Gmail."}
+              ? "See which accounts lose fresh sign-in access. Losing one recovery route may still leave another way in."
+              : "Start with the direct connections. Then follow the chain through the inboxes it opens."}
           </p>
-          <div className="instruction">
-            <span>01</span>
-            <p>
-              Switch to <strong>Full chain</strong> to see the hidden reach.
-            </p>
-          </div>
-          <div className="instruction">
-            <span>02</span>
-            <p>Select an account to see exactly how it can be reached.</p>
-          </div>
-          <div className="instruction">
-            <span>03</span>
-            <p>Fix the hub first. One change can protect several accounts.</p>
-          </div>
-          <button className="primary-button" onClick={onPlan}>
-            Plan the fix <ArrowUpRight size={17} />
-          </button>
-          <div className="blocked-callout">
-            <ShieldCheck size={19} />
-            <p>
-              <strong>Some doors stay closed.</strong> An AND method needs every
-              factor. A missing authenticator blocks that path.
-            </p>
-          </div>
+          <p>Select an account on the map to see exactly how it can be reached.</p>
         </div>
       ) : (
         <div className="explanation-content">
           <span
-            className={`risk-label ${unknown ? "unknown" : affected?.kind || "safe"}`}
+            className={`risk-label ${unknown ? "unknown" : affected?.kind || (results.length ? "safe" : "")}`}
           >
             {unknown
               ? "Unknown, not safe"
@@ -107,11 +84,13 @@ export function ExplanationPanel({
                 ? "Stranger can reach"
                 : affected?.kind === "lockout"
                   ? "You would lose access"
-                  : "Not affected in this scenario"}
+                  : results.length ? "Not affected in this scenario" : "Not assessed yet"}
           </span>
           <h2>{node.label}</h2>
           {unknown ? (
             <p><strong>Not in the graph of modelled methods.</strong> We found this account, but its recovery methods are not modelled. Confirm its settings yourself. Unknown, not safe.</p>
+          ) : !results.length ? (
+            <p>A successful risk check is needed before assessing this account.</p>
           ) : loading ? (
             <p role="status">Reading the derivation…</p>
           ) : error ? (
@@ -123,6 +102,14 @@ export function ExplanationPanel({
               <p className="explanation-subtitle">
                 The graph found this path under the methods we model.
               </p>
+              {route && (
+                <p className="shortest-route">
+                  <span className="eyebrow">SHORTEST SINGLE-FACTOR ROUTE</span>
+                  {route.outcome === "route"
+                    ? `${route.route.map((step) => step.label).join(" → ")} (${route.hops} ${route.hops === 1 ? "hop" : "hops"})`
+                    : "None. Reaching this account takes several factors at once."}
+                </p>
+              )}
               <ol className="path-chain">
                 {explanation.steps.map((step, i) => (
                   <li key={`${step.method_id}-${step.from_id}-${i}`}>

@@ -16,6 +16,25 @@ afterEach(() => {
 });
 
 describe("demo API contract", () => {
+  it("ranks keystones and finds single-factor routes without calling AND paths safe", async () => {
+    const api = createMockApi();
+    const { keystones } = await api.getKeystones();
+    expect(keystones.map((item) => item.id)).toContain("email_primary");
+    expect(keystones[0].downstream).toBeGreaterThan(0);
+    const route = await api.getPath("phone_old", "notion");
+    expect(route).toMatchObject({ outcome: "route", hops: 3 });
+    if (route.outcome === "route")
+      expect(route.route.map((step) => step.id)).toEqual([
+        "phone_old",
+        "google",
+        "email_primary",
+        "notion",
+      ]);
+    expect(await api.getPath("phone_old", "dropbox")).toMatchObject({
+      outcome: "no_single_route",
+    });
+  });
+
   it("separates direct accounts, hosted mailbox, downstream accounts, blocked AND and unknown services", async () => {
     const api = createMockApi();
     const result = await api.createScenario({

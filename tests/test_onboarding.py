@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -5,7 +6,9 @@ import yaml
 from redis.exceptions import ResponseError
 
 from lapse import onboarding
+from lapse.contracts import ContactChange, ExtractedEvent
 from lapse.graph import db
+from lapse.ingest.writer import _id, write_events
 
 
 @pytest.fixture
@@ -291,22 +294,190 @@ def test_declared_uses_confirm_dependencies_and_recompile(tmp_path, onboarding_g
         compile_user_graph(onboarding_graph, policies)
         assert "google" in closure(onboarding_graph, [], pw=True).reached
         assert "google" not in closure(onboarding_graph, ["phone_old"]).reached
-    assert onboarding.apply_declared_uses("test", path) == int(discovered)
-    assert onboarding.apply_declared_uses("test", path) == int(discovered)
+    assert onboarding.apply_declared_uses("test", path) == 1
+    assert onboarding.apply_declared_uses("test", path) == 1
+    account_id = "google" if discovered else _id("account", "google", "demo@example.com")
     edges = onboarding_graph.ro_query(
         "MATCH (a:Account)-[u:USES]->(r:Root) "
         "RETURN a.id, u.role, r.id, u.confirmed, u.confidence, u.source ORDER BY u.role"
     ).result_set
-    if discovered:
-        assert edges == [
-            ["google", "recovery_phone", "phone_old", True, 1.0, "declared"],
-            ["google", "sms_2fa", "phone_old", True, 1.0, "declared"],
-        ]
-        assert "google" not in closure(onboarding_graph, [], pw=True).reached
-        assert {"phone_old", "google", "email_primary"} == set(
-            closure(onboarding_graph, ["phone_old"]).reached
+    assert edges == [
+        [account_id, "recovery_phone", "phone_old", True, 1.0, "declared"],
+        [account_id, "sms_2fa", "phone_old", True, 1.0, "declared"],
+    ]
+    assert onboarding_graph.ro_query("MATCH (a:Account) RETURN count(a)").result_set == [[1]]
+    assert account_id not in closure(onboarding_graph, [], pw=True).reached
+    assert {"phone_old", account_id, "email_primary"} == set(closure(onboarding_graph, ["phone_old"]).reached)
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("discovered", [False, True])
+def test_migrated_declarations_are_stale_not_new_accounts(tmp_path, onboarding_graph, caplog, discovered):
+    g = onboarding_graph
+    path = tmp_path / "persona.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "phones": [{"id": "phone_old", "last4": "4321"}],
+                "emails": [
+                    {"id": "old", "address": "old@example.com"},
+                    {"id": "new", "address": "new@example.com"},
+                ],
+                "declared_uses": [
+                    {"service": "canva", "account": "old", "role": "login_email", "root": "old"},
+                    {"service": "canva", "account": "old", "role": "recovery_phone", "root": "phone_old"},
+                ],
+            }
         )
-    else:
-        assert edges == []
-        assert onboarding_graph.ro_query("MATCH (a:Account) RETURN count(a)").result_set == [[0]]
-        assert onboarding_graph.ro_query("MATCH (m:Method) RETURN count(m)").result_set == [[0]]
+    )
+    onboarding.load_persona_local("test", path)
+    if discovered:
+        g.query("CREATE (:Account {id:'existing', service_id:'canva', identifier:'old@example.com'})")
+    assert onboarding.apply_declared_uses("test", path) == 1
+    account_id = "existing" if discovered else _id("account", "canva", "old@example.com")
+    write_events(
+        "test",
+        [
+            ExtractedEvent(
+                msg_id="<migration>",
+                inbox="new",
+                date=datetime(2026, 10, 18, tzinfo=UTC),
+                sender="notice@canva.com",
+                sender_domain="canva.com",
+                service_id="canva",
+                subject="Email changed",
+                snippet="Your email address has been changed.",
+                event="contact_changed",
+                confidence=1,
+                contact_change=ContactChange(
+                    kind="email", old_email="old@example.com", new_email="new@example.com"
+                ),
+            )
+        ],
+    )
+    g.query("MATCH (:Account)-[u:USES {role:'recovery_phone'}]->() DELETE u")
+    before = g.ro_query("MATCH (a:Account)-[u:USES]->(r) RETURN a.id, u.role, r.id ORDER BY r.id").result_set
+    for _ in range(2):
+        assert onboarding.apply_declared_uses("test", path) == 0
+    assert g.ro_query("MATCH (a:Account) RETURN a.id, a.identifier").result_set == [
+        [account_id, "new@example.com"]
+    ]
+    assert (
+        g.ro_query("MATCH (a:Account)-[u:USES]->(r) RETURN a.id, u.role, r.id ORDER BY r.id").result_set
+        == before
+    )
+    assert before == [[account_id, "login_email", "new"]]
+    assert "Skipping stale declared use" in caplog.text
+    assert "old@example.com" not in caplog.text
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("same_id", [False, True])
+def test_ambiguous_declared_identity_is_rejected_without_writes(tmp_path, onboarding_graph, same_id):
+    g = onboarding_graph
+    path = tmp_path / "persona.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "emails": [{"id": "login", "address": "demo@example.com"}],
+                "declared_uses": [
+                    {"service": "canva", "account": "login", "role": "login_email", "root": "login"},
+                ],
+            }
+        )
+    )
+    onboarding.load_persona_local("test", path)
+    g.query(
+        "CREATE (:Account {id:'existing', service_id:'canva', identifier:'demo@example.com'}), "
+        "(:Account {id:$other, service_id:'canva', identifier:'new@example.com', "
+        "previous_identifiers:['demo@example.com']})",
+        {"other": "existing" if same_id else "other"},
+    )
+    before = g.ro_query("MATCH (n) RETURN count(n)").result_set
+    with pytest.raises(ValueError, match="Ambiguous declared account identity"):
+        onboarding.apply_declared_uses("test", path)
+    assert g.ro_query("MATCH (n) RETURN count(n)").result_set == before
+    assert g.ro_query("MATCH (:Account)-[:USES]->() RETURN count(*)").result_set == [[0]]
+
+
+def test_declared_use_rejects_unknown_service(tmp_path, monkeypatch):
+    path = tmp_path / "persona.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "declared_uses": [
+                    {"service": "nope", "account": "email_x", "role": "login_email", "root": "email_x"}
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(onboarding.db, "user_graph", lambda uid: None)
+    with pytest.raises(ValueError, match="unknown service"):
+        onboarding.apply_declared_uses("test", path)
+
+
+@pytest.mark.db
+def test_declared_mailbox_chain_is_five_hops_with_an_and_step(tmp_path, onboarding_graph):
+    from lapse.contracts import ScenarioKind, ScenarioRequest
+    from lapse.graph.closure import closure
+    from lapse.graph.scenarios import evaluate_scenario
+
+    use = lambda service, account, role, root: {
+        "service": service,
+        "account": account,
+        "role": role,
+        "root": root,
+    }
+    path = tmp_path / "persona.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "phones": [{"id": "phone_new", "last4": "7788"}],
+                "emails": [
+                    {
+                        "id": "email_college",
+                        "address": "student@example.edu",
+                        "hosted_by": "google",
+                        "status": "closing",
+                        "closes_at": "2026-11-15",
+                    },
+                    {"id": "email_outlook", "address": "Demo@Outlook.example", "hosted_by": "microsoft"},
+                ],
+                "declared_uses": [
+                    use("google", "email_college", "recovery_phone", "phone_new"),
+                    use("google", "email_college", "sms_2fa", "phone_new"),
+                    use("google", "email_college", "recovery_email", "email_outlook"),
+                    use("microsoft", "email_outlook", "recovery_email", "email_college"),
+                    use("coursera", "email_outlook", "login_email", "email_outlook"),
+                ],
+            }
+        )
+    )
+    onboarding.load_persona_local("test", path)
+    assert onboarding.apply_declared_uses("test", path) == 3
+    college = _id("account", "google", "student@example.edu")
+    microsoft = _id("account", "microsoft", "demo@outlook.example")
+    coursera = _id("account", "coursera", "demo@outlook.example")
+
+    route = db.run(onboarding_graph, "algo_shortest_path", {"from_id": "phone_new", "to_id": coursera}).rows
+    assert route[0]["ids"] == ["phone_new", college, "email_college", microsoft, "email_outlook", coursera]
+    assert route[0]["hops"] == 5
+    reached = closure(onboarding_graph, ["phone_new"]).reached
+    assert reached[coursera].round == 5
+
+    and_needs = onboarding_graph.ro_query(
+        "MATCH (m:Method)-[:GRANTS]->(:Account {id: $id}) "
+        "WITH m, [(m)-[:NEEDS]->(n) | n.id] AS needs WHERE size(needs) = 2 RETURN needs",
+        {"id": college},
+    ).result_set
+    assert ["email_outlook", "phone_new"] in [sorted(row[0]) for row in and_needs]
+    assert college not in closure(onboarding_graph, ["email_outlook"]).reached
+
+    lockout = evaluate_scenario(
+        onboarding_graph, ScenarioRequest(kind=ScenarioKind.lockout, root_ids=["email_college"])
+    ).result
+    lost = {node.node_id for node in [*lockout.lost_now_accounts, *lockout.recovery_lost_accounts]}
+    # The college account goes with its mailbox; Microsoft loses its only recovery. Coursera still
+    # resets through Outlook, which the user signs into with the Microsoft password.
+    assert {college, microsoft} <= lost
+    assert coursera not in lost

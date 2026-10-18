@@ -69,6 +69,7 @@ def harness(monkeypatch):
             chat_for=Mock(return_value=7),
             bind=Mock(return_value="u"),
             new_link_code=Mock(return_value="link-code"),
+            claim_default=Mock(return_value="u"),
         ),
         "agent.agent": SimpleNamespace(
             respond=AsyncMock(return_value={"text": "Hello", "buttons": [], "tool_calls": []})
@@ -162,7 +163,7 @@ async def test_start_requires_onboarding_without_explicit_default(harness):
     h = harness
     h.modules["telegram_link"].uid_for.return_value = None
     await h.runtime.start(h.update, h.context)
-    assert "http://localhost:5173/onboarding" in last_text(h)
+    assert "http://localhost:8080/onboarding" in last_text(h)
     assert "&lt;code&gt;" in last_text(h)
     h.modules["telegram_link"].bind.assert_not_called()
 
@@ -172,8 +173,25 @@ async def test_default_binding_uses_one_time_link_path(harness):
     h.modules["telegram_link"].uid_for.return_value = None
     h.runtime.default_uid = "explicit-user"
     await h.runtime.start(h.update, h.context)
-    h.modules["telegram_link"].new_link_code.assert_called_once_with("explicit-user")
-    h.modules["telegram_link"].bind.assert_called_once_with("link-code", 7)
+    h.modules["telegram_link"].claim_default.assert_called_once_with("explicit-user", 7)
+
+
+async def test_default_binding_links_on_first_message(harness):
+    h = harness
+    h.modules["telegram_link"].uid_for.return_value = None
+    h.modules["telegram_link"].claim_default.return_value = "explicit-user"
+    h.runtime.default_uid = "explicit-user"
+    assert await h.runtime.uid(h.update, h.context) == "explicit-user"
+    h.modules["telegram_link"].claim_default.assert_called_once_with("explicit-user", 7)
+
+
+async def test_default_binding_refuses_second_chat(harness):
+    h = harness
+    h.modules["telegram_link"].uid_for.return_value = None
+    h.modules["telegram_link"].claim_default.return_value = None
+    h.runtime.default_uid = "explicit-user"
+    assert await h.runtime.uid(h.update, h.context) is None
+    assert "linked yet" in last_text(h)
 
 
 async def test_invalid_link_and_group_do_not_bind(harness):
@@ -263,6 +281,9 @@ async def test_risk_selects_kind_for_retiring_roots(harness, monkeypatch, scenar
     assert len(h.bot.sent) == 1
     assert "3 of your accounts" in last_text(h)
     assert "can&#x27;t promise" in last_text(h)
+    rows = h.bot.sent[0][0]["reply_markup"].inline_keyboard
+    assert [row[0].text for row in rows] == ["Fix old number", "Fix email"]
+    assert all(row[0].callback_data for row in rows)
 
 
 async def test_buttons_short_storage_bound_to_user_and_chat(harness):
@@ -271,8 +292,9 @@ async def test_buttons_short_storage_bound_to_user_and_chat(harness):
         {"label": "Web", "action": "open_web", "payload": {"path": "/graph?scenario=s"}},
         {"label": "Plan", "action": "plan_root", "payload": {"root_id": "x" * 300}},
     ]
+    h.runtime.web_url = "https://lapse.example"
     keyboard = await h.runtime.keyboard("u", 7, buttons)
-    assert keyboard.inline_keyboard[0][0].url == "http://localhost:5173/graph?scenario=s"
+    assert keyboard.inline_keyboard[0][0].url == "https://lapse.example/graph?scenario=s"
     callback = keyboard.inline_keyboard[1][0].callback_data
     assert len(callback.encode()) <= 64
     key = f"lapse:bot:callback:u:7:{callback}"
@@ -286,6 +308,48 @@ async def test_buttons_short_storage_bound_to_user_and_chat(harness):
     await h.runtime.callback(h.update, h.context)
     assert key in h.runtime.redis.values
     assert "expired" in h.update.callback_query.edit_message_text.call_args.args[0]
+
+
+async def test_localhost_web_link_becomes_loopback_button(harness):
+    h = harness
+    buttons = [
+        {"label": "Fix it for me", "action": "plan_root", "payload": {"root_id": "r"}},
+        {"label": "Show me", "action": "open_web", "payload": {"path": "/graph?scenario=s"}},
+    ]
+    keyboard = await h.runtime.keyboard("u", 7, buttons)
+    fix, show = (row[0] for row in keyboard.inline_keyboard)
+    assert fix.callback_data
+    assert show.url == "http://127.0.0.1:8080/graph?scenario=s"
+
+
+async def test_unreachable_web_host_link_is_text(harness):
+    h = harness
+    h.runtime.web_url = "http://web:8080"
+    sent = []
+
+    async def send_message(**kwargs):
+        sent.append(kwargs)
+
+    buttons = [{"label": "Show me", "action": "open_web", "payload": {"path": "/graph"}}]
+    await h.runtime.send(SimpleNamespace(send_message=send_message), "u", 7, "Reply", buttons)
+    (message,) = sent
+    assert message["text"].endswith("Show me: http://web:8080/graph")
+    assert message["reply_markup"] is None
+
+
+@pytest.mark.parametrize(
+    ("url", "public"),
+    [
+        ("http://localhost:8080", True),
+        ("http://127.0.0.1:8080", True),
+        ("http://web:8080", False),
+        ("http://lapse.local", False),
+        ("https://lapse.example", True),
+    ],
+)
+def test_web_is_public(harness, url, public):
+    harness.runtime.web_url = url
+    assert harness.runtime.web_is_public is public
 
 
 @pytest.mark.parametrize("path", ["https://evil.example", "//evil.example", "/\\evil", "relative"])
@@ -356,6 +420,30 @@ async def test_plan_callback_card_and_approval_excludes_tier_four(harness, monke
     assert records == [{"action": "approve_changes", "payload": {"change_ids": ["c1", "c2", "c3"]}}]
 
 
+async def test_plan_with_two_replacements_offers_a_button_for_each(harness, monkeypatch):
+    from lapse.bot.runtime import planner, views
+
+    h = harness
+    monkeypatch.setattr(
+        views,
+        "list_roots",
+        lambda uid: [
+            Root(id="college", kind="email", label="College", address="c@example.edu", status="closing"),
+            Root(id="primary", kind="email", label="Primary", address="p@example.com"),
+            Root(id="outlook", kind="email", label="Outlook", address="o@example.org"),
+        ],
+    )
+    plan_for_root = Mock()
+    monkeypatch.setattr(planner, "plan_for_root", plan_for_root)
+    await press(h, "plan_root", {"root_id": "college"})
+    plan_for_root.assert_not_called()
+    records = [json.loads(value) for value in h.runtime.redis.values.values()]
+    assert [record["payload"] for record in records] == [
+        {"root_id": "college", "new_root_id": "primary"},
+        {"root_id": "college", "new_root_id": "outlook"},
+    ]
+
+
 @pytest.mark.parametrize("value", [True, False])
 async def test_confirm_use_callback(harness, monkeypatch, value):
     confirm = Mock()
@@ -401,6 +489,7 @@ async def test_slow_agent_typing_and_edits_working_message(harness):
 async def test_fast_sync_agent_reply_and_buttons(harness):
     h = harness
     h.runtime.slow_after = 1
+    h.runtime.web_url = "https://lapse.example"
     h.modules["agent.agent"].respond = Mock(
         return_value={
             "text": "Fast & done",

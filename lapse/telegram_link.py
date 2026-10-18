@@ -47,3 +47,11 @@ def chat_for(uid: str) -> int | None:
 
 def uid_for(chat_id: int) -> str | None:
     return jobs.client().get(f"lapse:tgchat:{chat_id}")
+
+
+def claim_default(uid: str, chat_id: int) -> str | None:
+    """Link a chat to the local default user unless another chat already holds it."""
+    owner = chat_for(uid)
+    if owner is not None and owner != chat_id:
+        return None
+    return bind(new_link_code(uid), chat_id)

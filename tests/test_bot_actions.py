@@ -77,6 +77,16 @@ def test_list_and_dismiss_signals(bot_graph):
         actions.dismiss_signal("u", "missing")
 
 
+def test_list_signals_without_root(bot_graph):
+    bot_graph.query(
+        "CREATE (:Signal {id: 'device', kind: 'new_device', at: $at, title: 'New device', "
+        "detail: 'google', status: 'open'})",
+        {"at": datetime.now(UTC).isoformat()},
+    )
+    (signal,) = actions.list_signals("u")
+    assert signal.root_id is None
+
+
 def test_read_change_without_replacement_root(bot_graph):
     bot_graph.query(
         "CREATE (:Change {id: 'c', plan_id: 'p', order: 1, account_id: 'a', account_label: 'Service', "

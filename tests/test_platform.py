@@ -275,3 +275,20 @@ def test_lease_renewal_never_takes_back_a_reassigned_job(redis):
     pending = redis.xpending_range(jobs.STREAM, "workers", job_id, job_id, 1)[0]
     assert pending["consumer"] == "replacement"
     stream.close()
+
+
+def test_claim_default_links_first_chat_only(monkeypatch):
+    store = {}
+
+    monkeypatch.setattr(telegram_link, "chat_for", lambda uid: store.get(uid))
+    monkeypatch.setattr(telegram_link, "new_link_code", lambda uid: "code")
+
+    def bind(code, chat_id):
+        store["u1"] = chat_id
+        return "u1"
+
+    monkeypatch.setattr(telegram_link, "bind", bind)
+    assert telegram_link.claim_default("u1", 5) == "u1"
+    assert telegram_link.claim_default("u1", 5) == "u1"
+    assert telegram_link.claim_default("u1", 9) is None
+    assert store["u1"] == 5
