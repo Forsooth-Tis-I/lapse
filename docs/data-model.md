@@ -32,7 +32,8 @@ A question mark marks an optional property. Fields on later work-package records
 | `Change` | `id`, `plan_id`, `order`, `account_id`, `account_label`, `role`, `from_root`, `to_root?`, `tier`, `requires_old_root`, `due?`, `exposure_removed`, `status`, `settings_url?`, `note?`. |
 | `Action` | Planned `id`, `at`, `kind`, `result`, `detail`, `screenshot_url?`. No shared persistence model yet. |
 | `ToolCall` | `id`, `at`, `tool`, `args_json`, `query_name?`, `ms`, `rows`, `outcome`. `args_json` stores the JSON encoding of `ToolCallRecord.args`. |
-| `Turn` | Planned `id`, `at`, `role`, `text`. No shared model yet. |
+| `Turn` | `id`, `at`, `role`, `text`, `channel`, `context_json`. Written by the agent; no shared model yet. |
+| `PolicyEvent` | Per-user `id`, `notification_text?`, `notification_pending?` for policy-change notification delivery. Full event definitions live in the policy graph. |
 
 Account `display` is `<Service> · <identifier>` when an identifier exists, otherwise the service name. Views, plan titles, and explanation paths use this label to distinguish accounts of the same service.
 
@@ -91,7 +92,7 @@ With SMS 2-step on `phone_new` for the college account, this gives a 5-hop singl
 | `MethodTemplate` | `id` = `<service_id>:<template_id>`, `template_id` = the service-local YAML ID, `service_id`, `kind`, `label`, `needs_roles`, `needs_password`, `doc_url?`. |
 | `ChangeProcedure` | `id` = `<service_id>:<root_kind>:<index>`, `service_id`, `root_kind`, `tier`, `requires`, `settings_url?`, `recipe?`, `confirmation_patterns`, `doc_url?`. |
 | `Carrier` | `id`, `name`, `country`, `reissue_after_days`, `source_url`. |
-| `PolicyEvent` | Planned `id`, `at`, `service_id`, `description`, `diff`. No shared model or foundation writer yet. |
+| `PolicyEvent` | `id`, `at`, `service_id`, `description`, `source_url`, `coverage_url`, `diff`. The policy-event processor writes the event; `diff` is JSON used during compilation. |
 
 `(Service)-[:HAS_METHOD]->(MethodTemplate)` and `(Service)-[:HAS_CHANGE]->(ChangeProcedure)` connect policy records. Carrier rules are independent nodes.
 

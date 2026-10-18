@@ -2,16 +2,120 @@
 
 ## README assets
 
-The current root README uses `docs/assets/account-map.png` and
-`docs/assets/fix-plan.png`, captured from the current UI with
-`VITE_USE_MOCK=true`. These are synthetic frontend previews, not live graph
-results or completed external account changes. The map uses Newsprint and the
-plan uses Risograph. Captures use a 1600 x 1100 viewport, device scale factor 2,
-and reduced motion.
+The root README uses `docs/assets/account-map.png`, captured from the UI with
+`VITE_USE_MOCK=true` in Newsprint/light. This is a synthetic frontend preview,
+not a live graph result or completed account change. The capture uses a
+1600 x 1100 viewport, device scale factor 2, and reduced motion.
 
-The light and dark logo PNGs export the app's existing `.brand` symbol and
-wordmark with transparent backgrounds. No personal graph, real inbox, or
-authenticated external browser was used for these four assets.
+The README uses only the light logo, exported from the app's existing `.brand`
+symbol and wordmark and backed by a light background for readability. The older
+dark logo and dark Fix plan image remain as unused assets. No personal graph,
+real inbox, or authenticated external browser was used for these assets.
+
+### FalkorDB screenshots
+
+The two README blockquotes are intentional placeholders for **user-supplied**
+FalkorDB Browser screenshots. Do not replace them with the frontend mock map:
+they should show actual synthetic nodes and edges stored in FalkorDB.
+
+#### Prepare an isolated synthetic graph
+
+With FalkorDB running, the following creates a fresh, uniquely named screenshot
+graph from the public fixture and saves one old-phone takeover scenario.
+It uses existing named queries, does not reset shared policy or demo graphs,
+and makes no LLM, inbox, Telegram, or browser-execution calls.
+
+```sh
+uv run python - <<'PY'
+from uuid import uuid4
+from lapse.config import ROOT_DIR
+from lapse.contracts import ScenarioRequest
+from lapse.graph import db
+from lapse.graph.scenarios import run_scenario
+from lapse.policy.loader import load_policy_file
+from scripts.load_fixture import load_persona
+
+uid = f"readme-capture-{uuid4().hex}"
+policies, _ = load_policy_file(ROOT_DIR / "lapse/policy/services.yaml")
+_, carriers = load_policy_file(ROOT_DIR / "lapse/policy/carriers.yaml")
+g = db.user_graph(uid)
+load_persona(g, policies, carriers)
+result = run_scenario(uid, ScenarioRequest(kind="takeover", root_ids=["phone_old"]))
+print(f"Browser graph: {g.name}")
+print(f"Scenario ID: {result.id}")
+PY
+```
+
+Keep the printed graph name and scenario ID. Open
+<http://localhost:3001>, connect to the local FalkorDB service, and select that
+exact graph. **Do not use `make fixture`**: it replaces `lapse:u:demo` and
+`lapse:policy`. The capture graph persists so you can arrange and retake images;
+delete only that exact graph after you no longer need it.
+
+#### Screenshot 1: demo access graph
+
+1. Open the existing [`wp4_entity.cypher`](../../lapse/graph/queries/wp4_entity.cypher)
+   in the Browser query editor. For this manual read-only lookup, replace `$id`
+   with `'phone_old'` and `$kind` with `'Root'`, then run it in the capture graph.
+2. Switch to graph visualization and use its node-expansion controls to reveal
+   incoming `NEEDS` methods and their `GRANTS` targets. Follow the Google account,
+   its mailbox method, `email_primary`, and the Notion account methods. Use the
+   same lookup with `$id = 'google'`, `'email_primary'`, or `'notion'` and the
+   appropriate `'Account'`/`'Root'` kind if you need to start a focused view.
+3. Keep the central chain small: `phone_old`, Google Account, `email_primary`,
+   Notion Account, and the corresponding Method nodes. Include selected `USES`
+   and `OF` edges only if they remain legible; hide unrelated neighbours rather
+   than deleting database records. Hide scenario/history edges for this image.
+4. Arrange prerequisites left, methods between their prerequisites and targets,
+   and downstream accounts right. **Keep arrows in their stored directions:**
+   Method → NEEDS → prerequisite; Method → GRANTS → target.
+5. Use `label` for Root/Method captions, `display` for Account, and `name` for
+   Service. If the Browser version offers only one caption property, use `id`
+   consistently. Show relationship names. Use a light background and distinct
+   node-label colors.
+
+Save as **`docs/assets/falkordb-demo-graph.png`**. Replace the first README
+placeholder blockquote with:
+
+```markdown
+![Synthetic FalkorDB access graph linking an old phone, Google host account, primary mailbox, and Notion through explicit access methods](docs/assets/falkordb-demo-graph.png)
+
+*Actual synthetic FalkorDB nodes and stored NEEDS/GRANTS relationships; USES records contacts, not access.*
+```
+
+#### Screenshot 2: multi-hop explanation
+
+1. In the same capture graph, use `wp4_entity.cypher` with the printed scenario
+   ID substituted for `$id` and `'Scenario'` for `$kind`. Expand its `SEED`
+   and `REACHED` neighbours. Keep only the central phone/mailbox chain and the
+   Dropbox branch visible, not every reached account.
+2. Expand the selected accounts' outgoing `DERIVED` relationships. This graph
+   has only one saved scenario, so historical derivations cannot mix in.
+   [`explain.cypher`](../../lapse/graph/queries/explain.cypher), with `$sid`
+   replaced by the printed scenario ID, gives a read-only table of its
+   prerequisites and method labels to check against the visual.
+3. Include both Dropbox prerequisites: `email_primary` and `phone_old`.
+   Both DERIVED edges share a method ID; together they explain the AND step.
+   Keep `DERIVED` arrows pointing from target to prerequisite. Do not redraw
+   them as forward control-flow arrows.
+4. Caption the Scenario by `id`, Account by `display`, and Root by `label`
+   (or use `id` for all). Show `SEED`, `REACHED`, and `DERIVED` labels, keeping
+   unrelated `USES`/`ENABLES`/policy edges out of this image.
+
+Save as **`docs/assets/falkordb-multihop.png`**. Replace the second README
+placeholder blockquote with:
+
+```markdown
+![Saved synthetic takeover scenario showing reached accounts and a multi-hop derivation, including both prerequisites for Dropbox](docs/assets/falkordb-multihop.png)
+
+*DERIVED points back to prerequisites. Dropbox requires both the mailbox and phone under the modelled method.*
+```
+
+Before saving either image, spread nodes until no label or edge crosses another
+label. Crop unnecessary browser chrome and keep text readable at roughly
+900 pixels wide in the README. Use synthetic IDs only; exclude personal
+identifiers, evidence snippets, credentials, and unrelated history. Screenshots
+show modelled graph state, not proof of a successful vendor account takeover.
 
 ## Historical WP6 round 2 verification
 
