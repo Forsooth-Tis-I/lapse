@@ -748,3 +748,38 @@ async def test_web_reply_has_plain_text_and_telegram_has_bold_names(offline):
     telegram = await agent.respond("alice", "risk of my old number")
     assert "Gmail" in web["text"] and "<b>" not in web["text"]
     assert "<b>Gmail</b>" in telegram["text"]
+
+
+async def test_small_talk_reply_without_tools(offline):
+    offline.llm = FakeLLM(message("Hey! Happy to help you stay on top of things."))
+    reply = await agent.respond("alice", "hey whats up")
+    assert reply["text"].startswith("Hey! Happy to help")
+    assert "what should I fix first" in reply["text"]
+    assert reply["diagnostics"]["fallback_used"] is False
+    assert reply["tool_calls"] == ["list_entities"]
+
+
+@pytest.mark.parametrize(
+    "prose",
+    ["Your Gmail is safe.", "You have 3 accounts at risk.", "All good with ••4321!", "<b>hi</b>"],
+)
+async def test_small_talk_cannot_state_graph_facts(offline, prose):
+    offline.llm = FakeLLM(message(prose))
+    reply = await agent.respond("alice", "hey")
+    assert reply["diagnostics"]["fallback_used"] is True
+    assert prose not in reply["text"]
+
+
+def test_small_talk_allows_capability_answers():
+    catalog = {"roots": [{"id": "phone-old", "label": "••4321"}], "accounts": [{"id": "a", "label": "Gmail"}]}
+    assert guard.small_talk("Happy to help! Ask about your accounts whenever.", catalog)
+    assert guard.small_talk("Try asking what happens if someone gets your old number.", catalog)
+    assert guard.small_talk("Your Gmail looks good.", catalog) is None
+    assert guard.small_talk("Everything is fine.", catalog) is None
+
+
+async def test_help_question_gets_capability_answer_offline(offline):
+    offline.llm = FakeLLM(TimeoutError())
+    reply = await agent.respond("alice", "What can you do?")
+    assert "what to fix first" in reply["text"]
+    assert reply["tool_calls"] == ["list_entities"]

@@ -289,8 +289,9 @@ async def test_buttons_short_storage_bound_to_user_and_chat(harness):
         {"label": "Web", "action": "open_web", "payload": {"path": "/graph?scenario=s"}},
         {"label": "Plan", "action": "plan_root", "payload": {"root_id": "x" * 300}},
     ]
+    h.runtime.web_url = "https://lapse.example"
     keyboard = await h.runtime.keyboard("u", 7, buttons)
-    assert keyboard.inline_keyboard[0][0].url == "http://localhost:8080/graph?scenario=s"
+    assert keyboard.inline_keyboard[0][0].url == "https://lapse.example/graph?scenario=s"
     callback = keyboard.inline_keyboard[1][0].callback_data
     assert len(callback.encode()) <= 64
     key = f"lapse:bot:callback:u:7:{callback}"
@@ -304,6 +305,40 @@ async def test_buttons_short_storage_bound_to_user_and_chat(harness):
     await h.runtime.callback(h.update, h.context)
     assert key in h.runtime.redis.values
     assert "expired" in h.update.callback_query.edit_message_text.call_args.args[0]
+
+
+async def test_local_web_link_is_text_not_button(harness):
+    h = harness
+    buttons = [
+        {"label": "Fix it for me", "action": "plan_root", "payload": {"root_id": "r"}},
+        {"label": "Show me", "action": "open_web", "payload": {"path": "/graph?scenario=s"}},
+    ]
+    sent = []
+
+    async def send_message(**kwargs):
+        sent.append(kwargs)
+
+    bot = SimpleNamespace(send_message=send_message)
+    await h.runtime.send(bot, "u", 7, "Reply", buttons)
+    (message,) = sent
+    assert message["text"].endswith("Show me: http://localhost:8080/graph?scenario=s")
+    (row,) = message["reply_markup"].inline_keyboard
+    assert row[0].text == "Fix it for me" and row[0].callback_data
+
+
+@pytest.mark.parametrize(
+    ("url", "public"),
+    [
+        ("http://localhost:8080", False),
+        ("http://127.0.0.1:8080", False),
+        ("http://192.168.1.5", False),
+        ("http://web:8080", False),
+        ("https://lapse.example", True),
+    ],
+)
+def test_web_is_public(harness, url, public):
+    harness.runtime.web_url = url
+    assert harness.runtime.web_is_public is public
 
 
 @pytest.mark.parametrize("path", ["https://evil.example", "//evil.example", "/\\evil", "relative"])
@@ -419,6 +454,7 @@ async def test_slow_agent_typing_and_edits_working_message(harness):
 async def test_fast_sync_agent_reply_and_buttons(harness):
     h = harness
     h.runtime.slow_after = 1
+    h.runtime.web_url = "https://lapse.example"
     h.modules["agent.agent"].respond = Mock(
         return_value={
             "text": "Fast & done",

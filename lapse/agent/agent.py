@@ -25,8 +25,17 @@ from lapse.config import settings
 from lapse.trace import current_turn, tool_call
 
 MAX_TOOL_STEPS = 6
-# Time the LLM gets to choose tools before the deterministic router answers. kimi-k2.7-code is ~3 s per call.
-LLM_BUDGET_SECONDS = float(os.environ.get("AGENT_LLM_BUDGET_SECONDS", "7"))
+# Time the LLM gets to choose tools before the deterministic router answers. kimi-k2.7-code takes 2-7 s per call.
+LLM_BUDGET_SECONDS = float(os.environ.get("AGENT_LLM_BUDGET_SECONDS", "15"))
+SMALL_TALK_HINT = (
+    "Try asking: <i>what happens if someone gets my old number?</i>, "
+    "<i>what should I fix first?</i>, or <i>plan the fix for my college email</i>."
+)
+HELP_TEXT = (
+    "I keep an eye on the numbers and emails you're giving up, and the accounts still tied to them. "
+    "I can tell you who could get in if your old number goes to someone else, what you'd lose if an "
+    "email closes, what to fix first, and plan the fixes for you to approve.\n\n" + SMALL_TALK_HINT
+)
 SYSTEM = Path(__file__).with_name("prompts").joinpath("system.md").read_text()
 
 
@@ -171,6 +180,10 @@ async def model_answer(client, messages, tools, previous):
             tools.llm_ms += (perf_counter() - started) * 1000
         message = response.choices[0].message
         if not message.tool_calls:
+            if tools.calls == ["list_entities"] and (
+                reply := guard.small_talk(message.content, tools.catalog)
+            ):
+                return reply if "try" in reply.casefold() else reply + "\n\n" + SMALL_TALK_HINT
             raise ValueError("No grounded tool selection")
         if len(message.tool_calls) > MAX_TOOL_STEPS - len(tools.calls):
             raise ValueError("Too many tool calls")
@@ -234,6 +247,10 @@ async def fallback(text, tools, previous):
         if plan_id:
             await tools.call("plan_status", {"plan_id": plan_id})
         return await tools.answer()
+    if re.fullmatch(
+        r"(?:/?help|what\s+can\s+you\s+do|how\s+does\s+(?:this|it|lapse)\s+work|who\s+are\s+you)", lower
+    ):
+        return HELP_TEXT
     if re.search(r"fix\s+first|most\s+important|single\s+point|keystone", lower):
         await tools.call("keystones", {})
         return await tools.answer()

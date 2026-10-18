@@ -108,7 +108,12 @@ def apply_declared_uses(uid: str, path="persona.local.yaml", *, trace=None) -> i
         rows = db.run(
             g,
             "onboarding_declared_use",
-            {"service_id": item["service"], "account_root": item["account"], "role": role.value, "root_id": item["root"]},
+            {
+                "service_id": item["service"],
+                "account_root": item["account"],
+                "role": role.value,
+                "root_id": item["root"],
+            },
             write=True,
             trace=trace,
         ).rows

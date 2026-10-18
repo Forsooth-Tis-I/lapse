@@ -349,13 +349,20 @@ def test_screen_reads_executor_pointer_and_serves_nested_image(api):
     directory.mkdir(parents=True)
     image = b"\x89PNG\r\n\x1a\n"
     (directory / "change-1.png").write_bytes(image)
-    api.redis.set("lapse:screen:demo", json.dumps({
-        "url": "/api/screens/demo/change-1.png", "caption": "Waiting for confirmation",
-    }))
+    api.redis.set(
+        "lapse:screen:demo",
+        json.dumps(
+            {
+                "url": "/api/screens/demo/change-1.png",
+                "caption": "Waiting for confirmation",
+            }
+        ),
+    )
     response = api.client.get("/api/agent/screen")
     assert response.json() == {
         "url": "http://testserver/api/screens/demo/change-1.png",
-        "caption": "Waiting for confirmation", "mock": False,
+        "caption": "Waiting for confirmation",
+        "mock": False,
     }
     assert api.client.get(response.json()["url"]).content == image
     outside = api.directory / "private.png"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import ipaddress
 import json
 import logging
 import re
@@ -86,12 +87,25 @@ class BotRuntime:
             raise ValueError("Web button must use a local path")
         return self.web_url + path
 
+    @property
+    def web_is_public(self) -> bool:
+        """Telegram rejects URL buttons for localhost and other non-public hosts."""
+        host = (urlsplit(self.web_url).hostname or "").casefold()
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return "." in host and not host.endswith((".local", ".localhost", ".internal"))
+        return address.is_global
+
     async def keyboard(self, uid: str, chat_id: int, buttons: list[dict]):
         rows = []
         for button in buttons:
             action, payload = button["action"], button["payload"]
             if action == "open_web":
-                item = InlineKeyboardButton(button["label"], url=self.web_link(payload["path"]))
+                link = self.web_link(payload["path"])
+                if not self.web_is_public:
+                    continue
+                item = InlineKeyboardButton(button["label"], url=link)
             elif action == "open_url":
                 url = payload["url"]
                 parsed = urlsplit(url)
@@ -119,6 +133,14 @@ class BotRuntime:
 
     async def send(self, bot, uid, chat_id, text, buttons=(), *, edit=None):
         keyboard = await self.keyboard(uid, chat_id, buttons)
+        if not self.web_is_public:
+            links = [
+                f"{escape(button['label'])}: {escape(self.web_link(button['payload']['path']))}"
+                for button in buttons
+                if button["action"] == "open_web"
+            ]
+            if links:
+                text = text + "\n\n" + "\n".join(links)
         # Telegram counts UTF-16 units after parsing HTML; 2000 code points fit even with emoji.
         chunks = html_chunks(text)
         for index, chunk in enumerate(chunks):
@@ -302,7 +324,8 @@ class BotRuntime:
                 KeyError,
                 ImportError,
                 OSError,
-            ):
+            ) as exc:
+                logger.warning("Telegram reply failed: %s", type(exc).__name__, exc_info=exc)
                 await self.send(
                     context.bot,
                     uid,
@@ -564,6 +587,7 @@ class BotRuntime:
     async def error(self, update, context):
         if update is None or update.effective_chat is None:
             return
+        logger.warning("Bot handler failed: %s", type(context.error).__name__, exc_info=context.error)
         text = "I couldn't finish that request. Check /status before retrying any approval."
         if update.callback_query:
             await update.callback_query.edit_message_text(text)

@@ -76,6 +76,27 @@ def grounded(text: str, results: list) -> bool:
     )
 
 
+CLAIM_WORDS = re.compile(
+    r"\b(?:safe|unsafe|secure|secured|risk|risky|exposed|protected|compromised|hacked|locked|"
+    r"affected|vulnerable|fine|okay|ok|password|passwords)\b",
+    re.IGNORECASE,
+)
+
+
+def small_talk(text: str | None, catalog: dict) -> str | None:
+    """Accept a tool-free model reply only when it states nothing about the user's graph."""
+    text = (text or "").strip()
+    if not text or len(text) > 400 or re.search(r"\d|<|>|`", text) or CLAIM_WORDS.search(text):
+        return None
+    lowered = text.casefold()
+    for item in [*catalog.get("roots", []), *catalog.get("accounts", [])]:
+        for value in (item.get("id"), item.get("label"), item.get("service")):
+            for part in str(value or "").split(" · "):
+                if len(part) >= 3 and part.casefold() in lowered:
+                    return None
+    return escape(text)
+
+
 def focused_results(results: list) -> list:
     for result in results:
         if not isinstance(result, dict):

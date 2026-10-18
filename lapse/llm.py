@@ -29,10 +29,14 @@ def client(*, asynchronous=False, base_url=None, api_key=None):
 def _models(model, fallback_models):
     if fallback_models is None:
         fallback_models = os.getenv("LLM_FALLBACK_MODELS", "glm-5.3-flash,qwen3.8-flash")
-    return list(dict.fromkeys([
-        model or settings().llm_model,
-        *filter(None, (m.strip() for m in fallback_models.split(","))),
-    ]))
+    return list(
+        dict.fromkeys(
+            [
+                model or settings().llm_model,
+                *filter(None, (m.strip() for m in fallback_models.split(","))),
+            ]
+        )
+    )
 
 
 def _attempt(diagnostics, index):
