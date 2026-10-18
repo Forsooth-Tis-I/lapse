@@ -483,3 +483,35 @@ def test_same_service_accounts_have_distinct_display_labels(graph, monkeypatch):
     assert {node["label"] for node in accounts} == {"Google · demo@example.com", "Google · demo@example.edu"}
     for node in accounts:
         assert views.account_detail("test", node["id"])["account"]["display"] == node["label"]
+
+
+def test_security_notice_to_a_recovery_inbox_stays_on_the_owning_account(graph):
+    g, _, _ = graph
+    g.query(
+        "MATCH (college:Email {id: 'email_college'}) "
+        "CREATE (a:Account {id: 'ms', service_id: 'microsoft', identifier: 'demo@example.org'}), "
+        "(a)-[:USES {role: 'recovery_email', confirmed: true}]->(college)"
+    )
+    notice = email_change(
+        inbox="email_college",
+        account_identifier="demo@example.edu",
+        service_id="microsoft",
+        sender="account-security-noreply@accountprotection.microsoft.com",
+        sender_domain="microsoft.com",
+        subject="Microsoft account security info was added",
+        snippet="The following security info was recently added to the account de**o@example.org.",
+        contact_change=ContactChange(kind="email", new_email="de**o@example.org"),
+    )
+    writer.write_events(
+        "test",
+        [
+            notice,
+            event(**{**notice.model_dump(), "msg_id": "<other>", "event": "other", "contact_change": None}),
+        ],
+    )
+    assert g.ro_query("MATCH (a:Account) RETURN a.id").result_set == [["ms"]]
+    assert uses(g, "microsoft") == [["recovery_email", "email_college", True]]
+    assert g.ro_query("MATCH (r:Email) WHERE r.address CONTAINS '*' RETURN count(r)").result_set == [[0]]
+    assert g.ro_query("MATCH (:Evidence)-[:SUPPORTS]->(a:Account {id: 'ms'}) RETURN count(*)").result_set == [
+        [2]
+    ]

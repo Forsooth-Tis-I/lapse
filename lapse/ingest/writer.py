@@ -71,13 +71,31 @@ def _publish(uid: str, counts: dict, *, status: str) -> None:
     )
 
 
+def _masked(address: str | None) -> bool:
+    return bool(address) and "*" in address
+
+
+def _recovery_account(rows: list[dict], identifier: str) -> dict | None:
+    """The one account that already lists this inbox as its recovery email, not its login."""
+    matches = [
+        row
+        for row in rows
+        if identifier in row.get("recovery_emails", [])
+        and identifier not in {row["account"].get("identifier"), *row["emails"]}
+    ]
+    return matches[0]["account"] if len(matches) == 1 else None
+
+
 def _account_identity(g, event, service_id, identifier, evidence_id, order, *, trace=None):
     change = event.contact_change if event.event == EventKind.contact_changed else None
     login_change = (
         change
         and change.kind == "email"
         and change.new_email
-        and not re.search(r"recovery\s+e-?mail", event.subject + " " + event.snippet, re.IGNORECASE)
+        and not _masked(change.new_email)
+        and not re.search(
+            r"recovery\s+e-?mail|security\s+info", event.subject + " " + event.snippet, re.IGNORECASE
+        )
     )
     old_email = change.old_email.strip().lower() if login_change and change.old_email else None
     keys = {identifier}
@@ -114,6 +132,14 @@ def _account_identity(g, event, service_id, identifier, evidence_id, order, *, t
             *candidate["account"].get("previous_identifiers", []),
         }:
             candidates = []
+    if not candidates and not login_change:
+        recovery = _recovery_account(rows, identifier)
+        if recovery is not None:
+            return {
+                "id": recovery["id"],
+                "identifier": recovery.get("identifier") or identifier,
+                "via_recovery": True,
+            }
     if login_change and rows and not candidates:
         raise ValueError(f"Unresolved account identity for email change on service {service_id}")
     account = candidates[0]["account"] if candidates else {}
@@ -225,6 +251,8 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
         at = event.date.astimezone(UTC).isoformat()
         order = at + "|" + event.msg_id + "|" + event.inbox
         identity = _account_identity(g, event, service.id, identifier, evidence_id, order, trace=trace)
+        # Mail to an account's known recovery inbox is evidence for that account, not a new login.
+        via_recovery = identity.pop("via_recovery", False)
         account_id = identity["id"]
         evidence = {
             "id": evidence_id,
@@ -301,8 +329,12 @@ def write_events(uid: str, events: list[ExtractedEvent], *, trace=None) -> dict:
             db.run(g, "ingest_signal", {"props": props}, write=True, trace=trace)
 
         change = event.contact_change if event.event == EventKind.contact_changed else None
+        if change and (via_recovery or _masked(change.new_email) or _masked(change.old_email)):
+            change = None
         changing_login_email = change and change.kind == "email" and change.new_email
-        if inbox is not None and inbox.kind == "email" and not changing_login_email:
+        if inbox is not None and inbox.kind == "email" and via_recovery:
+            use(_Resolution(inbox, "known"), "recovery_email", False)
+        elif inbox is not None and inbox.kind == "email" and not changing_login_email:
             use(_Resolution(inbox, "known"), "login_email", event.event in _EMAIL_CONFIRMING)
 
         role = _phone_role(event, policy)
