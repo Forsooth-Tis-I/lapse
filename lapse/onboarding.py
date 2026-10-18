@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from pydantic import ValidationError
 from lapse.contracts import Root
 from lapse.graph import db
 from lapse.policy.loader import default_policy_paths, load_policy_file
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_root(props: dict) -> Root:
@@ -118,6 +121,28 @@ def apply_declared_uses(uid: str, path="persona.local.yaml", *, trace=None) -> i
         if not address:
             raise ValueError(f"Declared use needs an email root as its account: {item['account']}")
         identifier = address.strip().lower()
+        account_id = _id("account", service.id, identifier)
+        candidates = db.run(
+            g,
+            "onboarding_account_candidates",
+            {"service_id": service.id, "identifier": identifier, "account_id": account_id},
+            trace=trace,
+        ).rows
+        if len(candidates) > 1:
+            raise ValueError(f"Ambiguous declared account identity for service {service.id}")
+        if candidates:
+            candidate = candidates[0]
+            account = candidate["account"]
+            if identifier not in {account.get("identifier"), *candidate["emails"]}:
+                logger.warning(
+                    "Skipping stale declared use: service=%s account_root=%s role=%s root=%s",
+                    service.id,
+                    item["account"],
+                    role.value,
+                    item["root"],
+                )
+                continue
+            account_id = account["id"]
         db.run(
             g,
             "onboarding_declared_account",
@@ -125,7 +150,7 @@ def apply_declared_uses(uid: str, path="persona.local.yaml", *, trace=None) -> i
                 "service": service.model_dump(mode="json", exclude_none=True),
                 "login_root": item["account"],
                 "identifier": identifier,
-                "account_id": _id("account", service.id, identifier),
+                "account_id": account_id,
             },
             write=True,
             trace=trace,
@@ -134,8 +159,7 @@ def apply_declared_uses(uid: str, path="persona.local.yaml", *, trace=None) -> i
             g,
             "onboarding_declared_use",
             {
-                "service_id": item["service"],
-                "account_root": item["account"],
+                "account_id": account_id,
                 "role": role.value,
                 "root_id": item["root"],
             },

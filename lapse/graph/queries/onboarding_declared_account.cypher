@@ -3,8 +3,9 @@
 // A provider's own mailbox is not an external login email (no self-loop: Outlook code -> Outlook).
 MATCH (login:Root {id: $login_root})
 MERGE (s:Service {id: $service.id}) SET s += $service
-MERGE (a:Account {service_id: $service.id, identifier: $identifier})
-ON CREATE SET a.id = $account_id, a.display = $service.name + ' · ' + $identifier,
+MERGE (a:Account {id: $account_id})
+ON CREATE SET a.service_id = $service.id, a.identifier = $identifier,
+              a.display = $service.name + ' · ' + $identifier,
               a.status = 'active', a.modelled = $service.modelled, a.source = 'declared'
 MERGE (a)-[:OF]->(s)
 FOREACH (_ IN CASE WHEN coalesce(login.hosted_by_service, '') <> $service.id THEN [1] ELSE [] END |
