@@ -167,12 +167,16 @@ export default function App() {
           api.getGraph(), api.getRoots(), refreshPlans(), api.getScreen(),
         ]);
         if (!active || revision !== graphRevision.current) return;
-        const first = rootScenarios(nextRoots)[0];
+        const linkedId = new URLSearchParams(window.location.search).get("scenario");
+        const linked = linkedId ? await api.getScenario(linkedId).catch(() => null) : null;
+        if (!active || revision !== graphRevision.current) return;
+        const first = linked ?? rootScenarios(nextRoots)[0];
         setTarget((previous) => {
-          if (previous && nextRoots.some((root) => root.id === previous)) return previous;
+          if (!linked && previous && nextRoots.some((root) => root.id === previous)) return previous;
           if (first) setMode(first.kind);
           return first?.root_ids[0] ?? nextRoots[0]?.id ?? null;
         });
+        if (linked) setDepth("full");
         setGraph(nextGraph);
         setRoots(nextRoots);
         setScreen(nextScreen);

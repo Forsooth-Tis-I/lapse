@@ -98,3 +98,16 @@ it("runs a scenario for whichever number or inbox is picked", async () => {
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^If you lose your number/);
   expect(screen.getByRole("button", { name: "I lose it" })).toHaveAttribute("aria-pressed", "true");
 });
+
+it("opens the scenario a Telegram link points at", async () => {
+  const { api } = await import("./api");
+  const linked = await api.createScenario({ kind: "lockout", root_ids: ["phone_old"] });
+  window.history.pushState({}, "", `/graph?scenario=${linked.id}`);
+  await act(async () => {
+    render(<App />);
+  });
+  window.history.pushState({}, "", "/");
+  expect(screen.getByRole("combobox", { name: "What if" })).toHaveValue("phone_old");
+  expect(screen.getByRole("button", { name: "I lose it" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Full chain" })).toHaveAttribute("aria-pressed", "true");
+});
