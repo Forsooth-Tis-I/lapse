@@ -29,6 +29,8 @@ class Goto:
 class Click:
     selectors: tuple[Selector, ...]
     ready: Selector | None = None
+    # Retry only idempotent clicks, e.g. a menu that ignores clicks until the page finishes loading.
+    attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -139,12 +141,19 @@ async def run_recipe(page, recipe: Recipe, ctx: ExecContext) -> bool:
                 match step:
                     case Goto():
                         await navigate(page, step, recipe.allowed_domains)
-                    case Click(selectors, ready):
-                        locator = await _select(page, selectors, values)
-                        since = datetime.now(UTC)
-                        await locator.click(timeout=5000)
-                        if ready is not None:
-                            await _select(page, (ready,), values)
+                    case Click(selectors, ready, attempts):
+                        for attempt in range(1, attempts + 1):
+                            locator = await _select(page, selectors, values)
+                            since = datetime.now(UTC)
+                            await locator.click(timeout=5000)
+                            if ready is None:
+                                break
+                            try:
+                                await _select(page, (ready,), values)
+                                break
+                            except SelectorFailure:
+                                if attempt == attempts:
+                                    raise
                     case Fill(selectors, value):
                         locator = await _select(page, selectors, values)
                         if "{code}" in value and "code" not in values:

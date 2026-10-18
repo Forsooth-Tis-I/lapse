@@ -263,6 +263,33 @@ async def test_failed_click_is_not_retried_on_another_selector(ctx):
     assert ("click", "Continue") not in page.actions
 
 
+class SlowMenuPage(FakePage):
+    """The menu ignores the first click, as Notion does before the page finishes loading."""
+
+    @property
+    def missing(self):
+        return () if self.actions.count(("click", "Workspace")) >= 2 else ("Settings",)
+
+    @missing.setter
+    def missing(self, value):
+        pass
+
+
+async def test_click_retries_until_ready_control_appears(ctx):
+    page = SlowMenuPage()
+    await run_recipe(
+        page, recipe(Click((Selector("Workspace"),), ready=Selector("Settings"), attempts=3)), ctx
+    )
+    assert page.actions.count(("click", "Workspace")) == 2
+
+
+async def test_click_without_attempts_fails_when_ready_control_is_missing(ctx):
+    page = SlowMenuPage()
+    with pytest.raises(SelectorFailure):
+        await run_recipe(page, recipe(Click((Selector("Workspace"),), ready=Selector("Settings"))), ctx)
+    assert page.actions.count(("click", "Workspace")) == 1
+
+
 async def test_screenshot_masks_fields_and_codes_and_publishes_url(tmp_path, monkeypatch):
     import json
 

@@ -16,7 +16,7 @@ SETTINGS_URL = "https://www.notion.so/home"
 WORKSPACE_MENU = Selector(re.compile(r".+ Close sidebar$"), "button")
 OPEN_EMAILS = (
     Goto(SETTINGS_URL, ready=WORKSPACE_MENU),
-    Click((WORKSPACE_MENU,), ready=Selector("Settings")),
+    Click((WORKSPACE_MENU,), ready=Selector("Settings"), attempts=3),
     Click((Selector("Settings"),), ready=Selector("Search settings", "textbox")),
     Fill((Selector("Search settings", "textbox"),), "email"),
     Click((Selector("Email", "button"),), ready=Selector("Manage emails", "button")),
