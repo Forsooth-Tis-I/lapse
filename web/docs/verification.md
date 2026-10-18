@@ -1,4 +1,23 @@
-# WP6 round 2 verification
+# Web verification
+
+## README assets
+
+The current root README uses `docs/assets/account-map.png` and
+`docs/assets/fix-plan.png`, captured from the current UI with
+`VITE_USE_MOCK=true`. These are synthetic frontend previews, not live graph
+results or completed external account changes. The map uses Newsprint and the
+plan uses Risograph. Captures use a 1600 x 1100 viewport, device scale factor 2,
+and reduced motion.
+
+The light and dark logo PNGs export the app's existing `.brand` symbol and
+wordmark with transparent backgrounds. No personal graph, real inbox, or
+authenticated external browser was used for these four assets.
+
+## Historical WP6 round 2 verification
+
+The results below describe the earlier integration checkpoint, not the current
+UI or present test counts. The web chat and trace panels were subsequently
+removed, and the API now returns both lockout tiers.
 
 Verified 2026-10-17 on `wp6r2-web`, after merging `main` at `c7504a6`. The inherited checkpoint is `c0f71ee`; the merge is `53d1bf2`. This report replaces the earlier mock-only verification.
 

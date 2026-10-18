@@ -8,7 +8,9 @@ Node 22 is needed only for host web development.
 
 1. Copy `.env.example` to `.env` and fill in the LLM key, Telegram token and inbox
    credentials. Run `make keys` locally and put both generated keys in `.env`.
-   Keep the host database port at 6380; 6379 and 3000 are already occupied.
+   Keep the host database port at 6380; the browser uses 3001 to avoid common
+   local 6379/3000 conflicts. Set `TELEGRAM_BOT_USERNAME` to your bot's handle,
+   without `@`, for the web link.
 2. Follow [persona setup](persona-setup.md) to create `persona.local.yaml`.
    Replace placeholder values locally. Never commit either private file.
 3. Run `uv sync --extra browser`, start FalkorDB with `make up`, then inspect
@@ -26,10 +28,14 @@ occupied. Stop only the services you intend to replace.
 
 ```sh
 make demo                 # build, then start all default services
-make fixture              # load the fixture graph through localhost:6380
 make logs s=worker        # Ctrl-C stops log following, not the service
 make demo-down            # stop containers; retain ./data and ./browser_profiles
 ```
+
+Initialize your roots with `uv run python -m lapse.onboarding --uid demo` after
+`make up`, then discover accounts through Connections or the ingestion CLI. See the
+[full-stack setup](../README.md#run-locally). `make fixture` is optional and
+**replaces `lapse:u:demo` and `lapse:policy`**; use only in a disposable setup.
 
 Open the app at <http://localhost:8080> and FalkorDB Browser at
 <http://localhost:3001>. API is on localhost:8000 and MCP on localhost:8766.
@@ -44,9 +50,9 @@ The local persona file is mounted read-only for onboarding and ingestion.
 The web image builds the real API client and serves it with nginx on 8080;
 `/api/` is proxied without buffering so SSE events arrive as they happen.
 
-The API, worker, bot and MCP entrypoint implementations must be present before
-starting the stack. The MCP image selects streamable HTTP transport and honors `FASTMCP_HOST=0.0.0.0` and
-`FASTMCP_PORT=8766`. Host CLI use still defaults to stdio. Image builds alone do not verify service interfaces.
+The MCP image selects streamable HTTP transport at `/mcp` and honors
+`FASTMCP_HOST=0.0.0.0` and `FASTMCP_PORT=8766`. Host CLI use defaults to stdio.
+Image builds alone do not verify service interfaces.
 
 ## Host services and browser login
 
@@ -55,18 +61,22 @@ make up
 uv sync --extra browser
 uv run playwright install --with-deps chromium
 make doctor
-make fixture
+uv run python -m lapse.onboarding --uid demo
 ```
 
 Run `make api`, `make worker`, `make bot`, and `make mcp` in separate terminals.
 For the web development server, run `cd web && npm ci`, then
-`VITE_USE_MOCK=false npm run dev` and open <http://localhost:5173>.
-The host web client defaults to the API on localhost:8000.
+`VITE_API_URL=http://localhost:8000 VITE_USE_MOCK=false npm run dev` and open
+<http://localhost:5173>. The explicit API URL is required when the frontend and API
+use separate origins; Vite does not supply an API proxy.
 
-Run the worker on the host for headed browser login. Use the executor's login
-workflow with the local desktop and `browser_profiles/`; the container has no
-desktop display. Stop the Docker worker with `docker compose stop worker` before
-starting the host worker. Do not run two bots with the same token.
+Run the worker on the host for headed browser login. Stop the Docker worker with
+`docker compose stop worker`, then use
+`uv run python scripts/browser_login.py --service notion --uid demo` and
+`EXEC_HEADED=true uv run python -m lapse.worker`. The container has no desktop
+display. Browser cookies may not transfer between macOS and Linux; prepare the
+profile on the executor's OS. Stop the host worker before restarting the Docker
+worker. Do not run two bots with the same token.
 
 ## Optional recording tunnel
 
@@ -75,9 +85,11 @@ waits up to 60 seconds, and prints its temporary `https://…trycloudflare.com` 
 The URL changes when the tunnel restarts. Requests go through web's nginx proxy,
 including SSE. No Cloudflare account or token is needed.
 
-The tunnel makes the web app and its proxied API public. Use demo data and enable
-`LAPSE_DEMO_MODE=true` before starting the API for a public recording. The API
-implementation must enforce read-only demo mode. Stop exposure with
+The tunnel makes the web app and its proxied API public. Use only synthetic data
+and enable `LAPSE_DEMO_MODE=true` before starting the API for a public recording.
+Demo mode blocks external-action and ingestion routes; it is not authentication.
+Do not expose a database containing personal graphs or browser screenshots.
+Stop exposure with
 `docker compose --profile tunnel stop tunnel`, or stop everything with
 `make demo-down`. Telegram does not need this tunnel.
 
@@ -99,24 +111,17 @@ implementation must enforce read-only demo mode. Stop exposure with
   Doctor only logs in and out; it never fetches messages.
 - **Browser missing:** install the browser extra and Chromium using the commands
   above, or rebuild `docker compose build worker` for the container worker.
-- **API unavailable or missing module:** integrate the API/worker/bot/MCP work
-  packages, rebuild, and inspect that service's logs. nginx waits for API health.
+- **API unavailable:** inspect `docker compose ps` and that service's logs. nginx
+  waits for API health. After replacing the API container, restart web if nginx
+  still resolves the old upstream address.
 - **No tunnel URL:** inspect `make logs s=tunnel`; outbound Cloudflare access may
   be blocked. The local app and long-polling bot remain usable.
 
-## WP11 integration checkpoint
+## Host MCP transport
 
-The current `make mcp` command uses the MCP server's default stdio transport. For
+`make mcp` uses the MCP server's default stdio transport. For
 host HTTP clients, run
 `uv run python -m lapse.agent.mcp_server --transport streamable-http`.
-The server binds loopback and reads `MCP_PORT`;
-the Docker settings currently advertise `FASTMCP_HOST` and `FASTMCP_PORT`. Align
-that entrypoint and binding before treating the container MCP health check as
-working. The agent's default in-process tool transport does not require HTTP MCP.
-
-The separately integrated LLM client targets OpenCode Go at
-`https://opencode.ai/zen/go/v1`, model `kimi-k2.7-code`, with an
-`x-opencode-session` header. This supersedes the earlier free-tier target for the
-integrated build. Verify that client and worker handler registration after merging
-before recording live execution. The final smoke command is
-`uv run python scripts/demo_e2e.py` once that parallel work lands.
+The server defaults to loopback and reads `FASTMCP_HOST`, `FASTMCP_PORT`, and the
+`MCP_PORT` fallback. The agent's default in-process tool transport does not require
+HTTP MCP.

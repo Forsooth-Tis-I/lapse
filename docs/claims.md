@@ -34,7 +34,7 @@ A marker has the form `&lt;!-- claim:takeover_phone_old.full --&gt;value&lt;!-- 
 | `plan_phone_old.after` | <!-- claim:plan_phone_old.after -->0<!-- /claim --> | Projected exposure after the complete plan. |
 | `plan_phone_old.steps` | <!-- claim:plan_phone_old.steps -->7<!-- /claim --> | Number of proposed changes, grouped by account. |
 | `closure.ms` | <!-- claim:closure.ms -->0-20<!-- /claim --> ms | Median local closure time and its accepted range. |
-| `queries.count` | <!-- claim:queries.count -->113<!-- /claim --> | Named files under `lapse/graph/queries/`. |
+| `queries.count` | <!-- claim:queries.count -->116<!-- /claim --> | Named files under `lapse/graph/queries/`. |
 | `tools.count` | <!-- claim:tools.count -->14<!-- /claim --> | Registered MCP tools. |
 
 The script also prints `graph.nodes`, `graph.edges`, `graph.accounts`, `graph.roots`, and `graph.methods` from `stats`, before it persists scenarios or a plan. Those totals depend on existing analytical history when using `--uid`; they are not published as stable demo claims. Optional test-count claims are not implemented. Test execution reports are the evidence for suite results.
@@ -49,10 +49,10 @@ The range absorbs local database scheduling noise. It is not a claim that every 
 
 ## Query inventory
 
-The checker regenerates the README table between its query-inventory markers. It sorts the actual `.cypher` filenames and joins them with `docs/query-descriptions.json`. Missing or extra descriptions fail the check, including in write mode. Add a reviewed description when a query is added, then run `--write`.
+The checker sorts the actual `.cypher` filenames and joins them with `docs/query-descriptions.json`. Missing or extra descriptions fail the check, including in write mode. If a document contains query-inventory markers, the checker verifies or regenerates that table; the README instead links to the query directory. Add a reviewed description when a query is added, then run `--write`.
 
 The inventory proves that the named files and descriptions correspond by name. It does not prove that every file is called on a particular user request. The `closure_round` and explain-path discussion identifies the main reasoning path.
 
-## Integration pass
+## Updating documentation
 
-After merging the parallel lockout, LLM-client, worker, and demo-runner work, run `--write`, inspect the changed prose, and run the checker again. Update screenshot captures separately if their visible values change. Claim markers cannot rewrite numbers embedded in PNGs. The existing screenshot provenance is in [web verification](../web/docs/verification.md).
+After changing graph behavior or adding queries, run `--write`, inspect the changes, and run the checker again. Update screenshot captures separately if their visible values change. Claim markers cannot rewrite numbers embedded in PNGs. The current README uses explicitly labelled frontend preview data; provenance and historical integration checks are in [web verification](../web/docs/verification.md).
