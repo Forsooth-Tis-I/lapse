@@ -1,0 +1,15 @@
+.git
+.venv
+.audit
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+persona.local.yaml
+browser_profiles
+data
+docs
+tests
+scripts
+web
+**/__pycache__
